@@ -43,13 +43,14 @@ def ingest_curated_reels():
 
     print(f"[INFO] Downloading {len(urls)} hand-picked Reels from reel_links.txt...")
 
-    ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        ydl_opts = {
+        "format": "best[ext=mp4]/best",
         "outtmpl": os.path.join(assets_dir, "curated_%(id)s.%(ext)s"),
-        "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "ignoreerrors": True,
+        }
+
     }
 
     try:
