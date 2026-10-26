@@ -6,8 +6,12 @@ import requests
 import random
 import yt_dlp
 
+# Force real-time unbuffered output on GitHub Actions so logs never freeze
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
 def log(msg):
-    print(msg, flush=True)
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 # ==========================================
 # 1. CONFIGURATION: DUAL TOKENS & ARC CTAs
@@ -34,34 +38,32 @@ def ingest_curated_reels():
 
     links_file = "reel_links.txt"
     if not os.path.exists(links_file):
-        log("[INFO] No 'reel_links.txt' found. Using existing .mp4 files in assets/.")
+        log("[INFO] No 'reel_links.txt' found. Checking assets/ folder...")
         return
 
     with open(links_file, "r", encoding="utf-8") as f:
         urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
     if not urls:
-        log("[INFO] 'reel_links.txt' is empty. Using existing .mp4 files in assets/.")
+        log("[INFO] 'reel_links.txt' is empty. Checking assets/ folder...")
         return
 
-    log(f"[INFO] Downloading {len(urls)} hand-picked Reels from reel_links.txt...")
+    log(f"[STEP 1/4] Downloading {len(urls)} hand-picked Reel(s) from reel_links.txt...")
 
     ydl_opts = {
         "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
         "outtmpl": os.path.join(assets_dir, "curated_%(id)s.%(ext)s"),
         "merge_output_format": "mp4",
-        "quiet": False,
+        "quiet": True,
         "no_warnings": True,
         "ignoreerrors": True,
-        "socket_timeout": 30,
+        "socket_timeout": 20,
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(urls)
-        log("[SUCCESS] Hand-picked Reels downloaded into assets/.")
-    except Exception as e:
-        log(f"[WARNING] Download warning: {e}")
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download(urls)
+
+    log("[SUCCESS] Download step finished. Moving to account discovery...")
 
 # ==========================================
 # 3. DISCOVER ALL CONNECTED IG ACCOUNTS
@@ -73,7 +75,7 @@ def get_connected_instagram_accounts(token):
         "limit": 100,
         "access_token": token
     }
-    response = requests.get(url, params=params, timeout=30).json()
+    response = requests.get(url, params=params, timeout=(10, 20)).json()
     if "error" in response:
         raise Exception(f"Token error: {response['error'].get('message')}")
 
@@ -89,10 +91,10 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 4. NON-BLOCKING FFmpeg STEALTH MASTERING
+# 4. FAST, NON-BLOCKING FFmpeg STEALTH GRADE
 # ==========================================
 def mutate_video_for_account(input_path, output_path):
-    log(f"[INFO] Running FFmpeg stealth mastering on {os.path.basename(input_path)}...")
+    log(f"[STEP 2/4] Mastering video & mutating fingerprint ({os.path.basename(input_path)})...")
 
     b_shift = round(random.uniform(0.001, 0.006), 4)
     s_shift = round(random.uniform(1.002, 1.012), 4)
@@ -107,10 +109,11 @@ def mutate_video_for_account(input_path, output_path):
     )
 
     cmd_with_audio = [
-        "ffmpeg", "-nostdin", "-y", "-i", input_path,
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", input_path,
         "-vf", vf_chain,
         "-af", f"atempo={speed}",
-        "-c:v", "libx264", "-crf", "17", "-preset", "veryfast",
+        "-c:v", "libx264", "-crf", "17", "-preset", "superfast",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-c:a", "aac", "-b:a", "192k",
         "-map_metadata", "-1",
@@ -122,15 +125,16 @@ def mutate_video_for_account(input_path, output_path):
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=180
+        timeout=90
     )
 
     if result.returncode != 0:
-        log("[INFO] Retrying FFmpeg in video-only stream mode...")
+        log("[INFO] Source has no audio track, mastering video-only stream...")
         cmd_video_only = [
-            "ffmpeg", "-nostdin", "-y", "-i", input_path,
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-i", input_path,
             "-vf", vf_chain,
-            "-c:v", "libx264", "-crf", "17", "-preset", "veryfast",
+            "-c:v", "libx264", "-crf", "17", "-preset", "superfast",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             "-an", "-map_metadata", "-1",
             output_path
@@ -140,51 +144,97 @@ def mutate_video_for_account(input_path, output_path):
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=180
+            timeout=90
         )
         if res2.returncode != 0:
-            raise Exception(f"FFmpeg failed: {res2.stderr.decode('utf-8', errors='ignore')[-400:]}")
+            raise Exception(f"FFmpeg failed: {res2.stderr.decode('utf-8', errors='ignore')}")
 
-    log(f"[SUCCESS] FFmpeg mastering complete: {output_path}")
+    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    log(f"[SUCCESS] FFmpeg finished in seconds ({size_mb:.2f} MB).")
     return output_path
 
 # ==========================================
-# 5. DUAL-HOST GHOST BUCKET RELAY
+# 5. 4-RELAY GHOST UPLOAD (STRICT 25s TIMEOUTS)
 # ==========================================
 def upload_for_meta_download(file_path):
-    log("[INFO] Uploading mastered Reel to temporary ghost relay...")
+    log("[STEP 3/4] Uploading mastered Reel to temporary ghost relay...")
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
 
+    # Relay 1: Catbox direct MP4 CDN
     try:
+        log(" -> Trying Relay #1 (Catbox CDN)...")
+        with open(file_path, "rb") as f:
+            res = requests.post(
+                "https://catbox.moe/user/api.php",
+                data={"reqtype": "fileupload"},
+                files={"fileToUpload": f},
+                headers=headers,
+                timeout=(10, 25)
+            )
+        if res.status_code == 200 and res.text.strip().startswith("https://"):
+            url = res.text.strip()
+            log(f"[SUCCESS] Relay #1 URL ready: {url}")
+            return url
+    except Exception as e:
+        log(f" -> Relay #1 skipped ({e})")
+
+    # Relay 2: Litterbox 1h CDN
+    try:
+        log(" -> Trying Relay #2 (Litterbox CDN)...")
         with open(file_path, "rb") as f:
             res = requests.post(
                 "https://litterbox.catbox.moe/resources/internals/api.php",
                 data={"reqtype": "fileupload", "time": "1h"},
                 files={"fileToUpload": f},
-                timeout=60
+                headers=headers,
+                timeout=(10, 25)
             )
         if res.status_code == 200 and res.text.strip().startswith("https://"):
-            direct_url = res.text.strip()
-            log(f"[SUCCESS] Ghost Relay #1 URL ready: {direct_url}")
-            return direct_url
+            url = res.text.strip()
+            log(f"[SUCCESS] Relay #2 URL ready: {url}")
+            return url
     except Exception as e:
-        log(f"[WARNING] Primary relay hiccup ({e}), switching to backup relay...")
+        log(f" -> Relay #2 skipped ({e})")
 
+    # Relay 3: Uguu direct CDN
+    try:
+        log(" -> Trying Relay #3 (Uguu CDN)...")
+        with open(file_path, "rb") as f:
+            res = requests.post(
+                "https://uguu.se/upload",
+                files={"files[]": f},
+                headers=headers,
+                timeout=(10, 25)
+            ).json()
+        if res.get("success") and res.get("files"):
+            url = res["files"][0]["url"]
+            log(f"[SUCCESS] Relay #3 URL ready: {url}")
+            return url
+    except Exception as e:
+        log(f" -> Relay #3 skipped ({e})")
+
+    # Relay 4: Tmpfiles with strict 25s cutoff so it never hangs
+    log(" -> Trying Relay #4 (Tmpfiles CDN)...")
     with open(file_path, "rb") as f:
-        response = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": f}, timeout=60).json()
+        response = requests.post(
+            "https://tmpfiles.org/api/v1/upload",
+            files={"file": f},
+            headers=headers,
+            timeout=(10, 25)
+        ).json()
 
     if "data" not in response or "url" not in response["data"]:
-        raise Exception(f"Both ghost relays failed: {response}")
+        raise Exception(f"All 4 relays failed: {response}")
 
-    viewer_url = response["data"]["url"]
-    direct_url = viewer_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-    log(f"[SUCCESS] Ghost Relay #2 URL ready: {direct_url}")
+    direct_url = response["data"]["url"].replace("tmpfiles.org/", "tmpfiles.org/dl/")
+    log(f"[SUCCESS] Relay #4 URL ready: {direct_url}")
     return direct_url
 
 # ==========================================
 # 6. META GRAPH API REEL PUBLISHER
 # ==========================================
 def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
-    log(f"[INFO] Creating Meta Reel container for IG ID {ig_user_id}...")
+    log(f"[STEP 4/4] Sending video to Meta Graph API for IG ID {ig_user_id}...")
     container_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media"
     payload = {
         "media_type": "REELS",
@@ -193,21 +243,22 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
         "share_to_feed": "true",
         "access_token": token
     }
-    res = requests.post(container_url, data=payload, timeout=30).json()
+    res = requests.post(container_url, data=payload, timeout=(10, 25)).json()
     if "id" not in res:
         raise Exception(f"Container creation failed: {res}")
 
     creation_id = res["id"]
+    log(f"[INFO] Container ID {creation_id} created. Waiting for Meta video processing...")
     status_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{creation_id}"
 
     for attempt in range(20):
         status_res = requests.get(
             status_url,
             params={"fields": "status_code,status", "access_token": token},
-            timeout=30
+            timeout=(10, 20)
         ).json()
         status_code = status_res.get("status_code")
-        log(f"[INFO] Meta processing [{attempt+1}/20]: {status_code}")
+        log(f" -> Meta status check [{attempt+1}/20]: {status_code}")
 
         if status_code == "FINISHED":
             break
@@ -221,55 +272,54 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
     publish_res = requests.post(
         publish_url,
         data={"creation_id": creation_id, "access_token": token},
-        timeout=30
+        timeout=(10, 25)
     ).json()
 
     if "id" not in publish_res:
         raise Exception(f"Publish step failed: {publish_res}")
 
-    log(f"[SUCCESS] LIVE ON INSTAGRAM! Media ID: {publish_res['id']}")
+    log(f"[SUCCESS] PUBLISHED LIVE TO INSTAGRAM! Media ID: {publish_res['id']}")
 
 # ==========================================
 # 7. MAIN ENGINE EXECUTION
 # ==========================================
 def main():
-    log("[START] Initializing ARC Publishing Engine...")
+    log("=== ARC PUBLISHING ENGINE STARTED ===")
     active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
     if not active_tokens:
-        raise ValueError("FATAL: Add META_TOKEN_1 (and META_TOKEN_2) in GitHub Actions Secrets.")
+        raise ValueError("FATAL: META_TOKEN_1 / META_TOKEN_2 missing in GitHub Secrets!")
 
     ingest_curated_reels()
 
     assets_dir = "assets"
     raw_videos = [f for f in os.listdir(assets_dir) if f.lower().endswith(".mp4")]
-    log(f"[INFO] Found {len(raw_videos)} ready .mp4 files in assets/: {raw_videos}")
+    log(f"[INFO] Videos ready in assets/: {raw_videos}")
     if not raw_videos:
-        raise FileNotFoundError("No .mp4 videos found after ingestion!")
+        raise FileNotFoundError("No .mp4 videos found in assets/! Check your link in reel_links.txt.")
 
     all_accounts = []
     seen_ig_ids = set()
     for idx, token in enumerate(active_tokens):
         try:
-            log(f"[INFO] Scanning Token #{idx+1} for connected Instagram accounts...")
+            log(f"[INFO] Checking Meta Token #{idx+1} for Instagram accounts...")
             accs = get_connected_instagram_accounts(token)
-            log(f"[INFO] Token #{idx+1}: Found {len(accs)} connected Instagram accounts.")
+            log(f"[INFO] Token #{idx+1}: Found {len(accs)} connected Instagram account(s).")
             for a in accs:
                 if a["ig_user_id"] not in seen_ig_ids:
                     seen_ig_ids.add(a["ig_user_id"])
                     all_accounts.append(a)
         except Exception as e:
-            log(f"[ERROR] Token #{idx+1} lookup failed: {e}")
+            log(f"[ERROR] Token #{idx+1} failed: {e}")
 
     if not all_accounts:
-        raise RuntimeError("Zero Instagram Business accounts found across your tokens.")
+        raise RuntimeError("Zero Instagram Business accounts found on your tokens.")
 
-    log(f"[INFO] Deploying across {len(all_accounts)} accounts...")
     shuffled_pool = random.sample(raw_videos, len(raw_videos))
 
     for index, acc in enumerate(all_accounts):
-        log(f"\n----------------------------------------")
-        log(f"[NODE {index+1}/{len(all_accounts)}] {acc['page_name']} (IG ID: {acc['ig_user_id']})")
-        log(f"----------------------------------------")
+        log(f"\n========================================")
+        log(f"ACCOUNT [{index+1}/{len(all_accounts)}]: {acc['page_name']} ({acc['ig_user_id']})")
+        log(f"========================================")
 
         video_choice = shuffled_pool[index % len(shuffled_pool)]
         selected_video = os.path.join(assets_dir, video_choice)
@@ -288,11 +338,11 @@ def main():
 
         if index < len(all_accounts) - 1:
             jitter = random.randint(20, 35)
-            log(f"[SAFE JITTER] Pausing {jitter}s before next account...")
+            log(f"[COOLDOWN] Waiting {jitter}s before next account...")
             time.sleep(jitter)
 
-    log("\n[COMPLETE] All accounts processed successfully!")
+    log("=== ALL ACCOUNTS COMPLETED SUCCESSFULLY ===")
 
 if __name__ == "__main__":
     main()
-                
+    
