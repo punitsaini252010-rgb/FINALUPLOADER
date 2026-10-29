@@ -244,7 +244,7 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 5. 4K UHD LANCZOS + WATERMARK + END-CARD
+# 5. 4K UHD OPTIMIZED + WATERMARK + END-CARD
 # ==========================================
 def get_video_duration(input_path):
     try:
@@ -266,7 +266,7 @@ def get_video_duration(input_path):
         return 10.0
 
 def mutate_video_for_account(input_path, output_path, font_path):
-    log(f"[STEP 2/4] 4K UHD Mastering + Watermark + End-Card ({os.path.basename(input_path)})...")
+    log(f"[STEP 2/4] 4K Optimized Mastering + Watermark + End-Card ({os.path.basename(input_path)})...")
 
     # Human-imperceptible detector-breaking variations:
     # 0.993 to 0.997 keeps 99.3%-99.7% of the frame (0.3% to 0.7% micro-trim = zero visible zoom)
@@ -323,9 +323,9 @@ def mutate_video_for_account(input_path, output_path, font_path):
         "-vf", vf_chain,
         "-af", f"atempo={speed},volume={vol_shift}",
         "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
-        "-crf", "15", "-preset", "superfast",
+        "-crf", "22", "-preset", "veryfast",  # Optimized for fast relay uploads while keeping 4K clarity
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-map_metadata", "-1",
         "-metadata", f"creation_time={epoch_jitter}",
         output_path
@@ -346,7 +346,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
             "-i", input_path,
             "-vf", vf_chain,
             "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
-            "-crf", "15", "-preset", "superfast",
+            "-crf", "22", "-preset", "veryfast",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             "-an", "-map_metadata", "-1",
             "-metadata", f"creation_time={epoch_jitter}",
@@ -363,7 +363,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
             raise Exception(f"FFmpeg failed: {res2.stderr.decode('utf-8', errors='ignore')}")
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
-    log(f"[SUCCESS] 4K UHD Master finished ({size_mb:.2f} MB).")
+    log(f"[SUCCESS] 4K Optimized Master finished ({size_mb:.2f} MB).")
     return output_path
 
 # ==========================================
