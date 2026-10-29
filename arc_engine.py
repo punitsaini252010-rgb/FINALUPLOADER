@@ -559,12 +559,13 @@ def main():
             if os.path.exists(mutated_output):
                 os.remove(mutated_output)
 
-        if index < len(all_accounts) - 1:
-            # 1 to 4 minutes (60s to 240s) random delay between accounts
-            jitter_seconds = random.randint(60, 240)
+                if index < len(all_accounts) - 1:
+            # 20 to 60 seconds random delay between accounts
+            jitter_seconds = random.randint(20, 60)
             jitter_mins = round(jitter_seconds / 60, 1)
             log(f"[COOLDOWN] Waiting {jitter_mins} minutes ({jitter_seconds}s) before next account...")
             time.sleep(jitter_seconds)
+
 
     if os.path.exists(selected_video):
         os.remove(selected_video)
