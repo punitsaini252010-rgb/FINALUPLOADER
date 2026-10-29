@@ -16,7 +16,7 @@ concurrency:
 jobs:
   deploy-arc-reels:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360  # <-- Changed from 120 to 360 minutes
 
     steps:
       - name: Checkout Repository
@@ -48,3 +48,4 @@ jobs:
           touch posted_history.txt
           git add posted_history.txt reel_links.txt
           git diff --staged --quiet || (git commit -m "chore: lock posted reel in history [skip ci]" && git pull --rebase origin main && git push)
+          
