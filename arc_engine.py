@@ -232,7 +232,7 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 5. 4K UHD OPTIMIZED + WATERMARK + END-CARD
+# 5. 4K UHD OPTIMIZED + UPPER-CENTER WATERMARK + END-CARD
 # ==========================================
 def get_video_duration(input_path):
     try:
@@ -248,7 +248,7 @@ def get_video_duration(input_path):
         return 10.0
 
 def mutate_video_for_account(input_path, output_path, font_path):
-    log(f"[STEP 2/4] 4K Optimized Mastering + Watermark + End-Card ({os.path.basename(input_path)})...")
+    log(f"[STEP 2/4] 4K Optimized Mastering + Upper-Center Watermark + End-Card ({os.path.basename(input_path)})...")
 
     crop_keep = round(random.uniform(0.993, 0.997), 4)
     x_jitter = random.randint(1, 3)
@@ -269,8 +269,9 @@ def mutate_video_for_account(input_path, output_path, font_path):
     line1 = "KEEP SCROLLING LOSER"
     line2 = "OR ENTER ARC AND MAKE MONEY"
 
-    wm_x = 85 + random.randint(0, 4)
-    wm_y = 280 + random.randint(0, 4)
+    # Upper-center watermark position with micro-pixel jitter per account
+    wm_x_offset = random.randint(-3, 3)
+    wm_y = 340 + random.randint(0, 6)
 
     vf_chain = (
         f"setpts=PTS/{speed},"
@@ -280,8 +281,8 @@ def mutate_video_for_account(input_path, output_path, font_path):
         f"eq=brightness={b_shift}:contrast={c_shift}:saturation={s_shift}:gamma={g_shift},"
         f"unsharp=5:5:0.32:5:5:0.0,"
         f"drawtext=fontfile={font_path}:text='ARC':expansion=none:"
-        f"fontcolor=white@0.28:fontsize=68:shadowcolor=black@0.15:shadowx=2:shadowy=2:"
-        f"x={wm_x}:y={wm_y},"
+        f"fontcolor=white@0.32:fontsize=130:shadowcolor=black@0.25:shadowx=3:shadowy=3:"
+        f"x=(w-text_w)/2+{wm_x_offset}:y={wm_y},"
         f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.82:t=fill:enable='gte(t,{cta_start})',"
         f"drawtext=fontfile={font_path}:text='{line1}':expansion=none:"
         f"fontcolor=0xFFD700:fontsize=92:shadowcolor=black@0.9:shadowx=4:shadowy=4:"
