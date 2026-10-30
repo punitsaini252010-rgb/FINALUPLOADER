@@ -29,7 +29,6 @@ ASSETS_DIR = "assets"
 CUSTOM_FONT_PATH = "Montserrat-ExtraBold.ttf"
 
 # 55 Short, Single-Line Captions — "@ARCBLOODLINE30" is always Word #1 in CAPS.
-# Zero line breaks and under 52 chars so "... more" NEVER triggers.
 ARC_BASE_CAPTIONS = [
     "@ARCBLOODLINE30 Keep scrolling loser or enter ARC.",
     "@ARCBLOODLINE30 Enter ARC and make real money now.",
@@ -89,10 +88,6 @@ ARC_BASE_CAPTIONS = [
 ]
 
 def generate_unique_caption_batch(count):
-    """
-    Guarantees every account in the run gets a 100% unique short caption
-    with @ARCBLOODLINE30 as the first word in CAPS.
-    """
     pool = list(ARC_BASE_CAPTIONS)
     random.shuffle(pool)
     micro_tags = ["", " ↓", " ⚡", " 🗝️", " 🔓", " ♟️"]
@@ -105,14 +100,9 @@ def generate_unique_caption_batch(count):
     return selected
 
 # ==========================================
-# 2. CUSTOM FONT AUTO-LOADER (CLEAN DISPLAY FONT)
+# 2. CUSTOM FONT AUTO-LOADER
 # ==========================================
 def ensure_custom_font():
-    """
-    Downloads Montserrat-ExtraBold.ttf so the watermark and center CTA
-    render in a clean, ultra-sharp custom display font. Falls back to
-    DejaVuSans-Bold if GitHub cannot reach Google Fonts.
-    """
     if os.path.exists(CUSTOM_FONT_PATH) and os.path.getsize(CUSTOM_FONT_PATH) > 10000:
         return CUSTOM_FONT_PATH
 
@@ -159,7 +149,6 @@ def remove_link_from_queue(used_url):
 def ingest_single_fresh_reel(posted_history):
     os.makedirs(ASSETS_DIR, exist_ok=True)
 
-    # Clean out any already-posted .mp4 files sitting in assets/
     for existing in os.listdir(ASSETS_DIR):
         if existing.lower().endswith(".mp4") and existing in posted_history:
             try:
@@ -192,7 +181,7 @@ def ingest_single_fresh_reel(posted_history):
                     full_path = os.path.join(ASSETS_DIR, downloaded_file)
 
                     if downloaded_file in posted_history:
-                        log(f"[SKIP] Video ID {downloaded_file} was already posted previously. Removing duplicate link...")
+                        log(f"[SKIP] Video ID {downloaded_file} was already posted. Removing link...")
                         mark_as_posted(target_url)
                         remove_link_from_queue(target_url)
                         if os.path.exists(full_path):
@@ -203,11 +192,10 @@ def ingest_single_fresh_reel(posted_history):
                         log(f"[SUCCESS] Fresh Reel downloaded: {downloaded_file}")
                         return full_path, target_url, downloaded_file
             except Exception as e:
-                log(f"[WARNING] Link failed ({target_url}): {e}. Removing broken link and trying next...")
+                log(f"[WARNING] Link failed ({target_url}): {e}. Removing broken link...")
                 mark_as_posted(target_url)
                 remove_link_from_queue(target_url)
 
-    # Fallback: check if there is an unposted .mp4 file placed directly inside assets/
     unposted_local = [
         f for f in os.listdir(ASSETS_DIR)
         if f.lower().endswith(".mp4") and f not in posted_history
@@ -254,13 +242,7 @@ def get_video_duration(input_path):
             "-of", "default=noprint_wrappers=1:nokey=1",
             input_path
         ]
-        res = subprocess.run(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=15
-        )
+        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
         return float(res.stdout.decode("utf-8").strip())
     except Exception:
         return 10.0
@@ -268,30 +250,25 @@ def get_video_duration(input_path):
 def mutate_video_for_account(input_path, output_path, font_path):
     log(f"[STEP 2/4] 4K Optimized Mastering + Watermark + End-Card ({os.path.basename(input_path)})...")
 
-    # Human-imperceptible detector-breaking variations:
-    # 0.993 to 0.997 keeps 99.3%-99.7% of the frame (0.3% to 0.7% micro-trim = zero visible zoom)
     crop_keep = round(random.uniform(0.993, 0.997), 4)
-    # Randomize sub-pixel crop alignment by 1 to 3 pixels to shift macroblock grid per account
     x_jitter = random.randint(1, 3)
     y_jitter = random.randint(1, 3)
 
-    b_shift = round(random.uniform(-0.003, 0.003), 4)   # Invisible brightness shift
-    c_shift = round(random.uniform(1.001, 1.005), 4)    # Invisible contrast shift
-    s_shift = round(random.uniform(1.002, 1.007), 4)    # Invisible saturation shift
-    g_shift = round(random.uniform(0.998, 1.003), 4)    # Invisible gamma shift
-    speed = round(random.uniform(1.006, 1.014), 4)      # 0.6% to 1.4% speed variation
-    vol_shift = round(random.uniform(1.002, 1.008), 4)  # Imperceptible audio amplitude variation
+    b_shift = round(random.uniform(-0.003, 0.003), 4)
+    c_shift = round(random.uniform(1.001, 1.005), 4)
+    s_shift = round(random.uniform(1.002, 1.007), 4)
+    g_shift = round(random.uniform(0.998, 1.003), 4)
+    speed = round(random.uniform(1.006, 1.014), 4)
+    vol_shift = round(random.uniform(1.002, 1.008), 4)
     epoch_jitter = int(time.time()) - random.randint(120, 90000)
 
     raw_duration = get_video_duration(input_path)
     final_duration = raw_duration / speed
     cta_start = round(max(1.5, final_duration - 2.4), 2)
 
-    # Exact center CTA text in the final 2.4 seconds
     line1 = "KEEP SCROLLING LOSER"
     line2 = "OR ENTER ARC AND MAKE MONEY"
 
-    # Slightly vary watermark position by 1-4 pixels per account for extra hash uniqueness
     wm_x = 85 + random.randint(0, 4)
     wm_y = 280 + random.randint(0, 4)
 
@@ -302,11 +279,9 @@ def mutate_video_for_account(input_path, output_path, font_path):
         f"crop=2160:3840,"
         f"eq=brightness={b_shift}:contrast={c_shift}:saturation={s_shift}:gamma={g_shift},"
         f"unsharp=5:5:0.32:5:5:0.0,"
-        # Low-opacity "ARC" watermark in noticeable upper-left safe zone throughout the Reel
         f"drawtext=fontfile={font_path}:text='ARC':expansion=none:"
         f"fontcolor=white@0.28:fontsize=68:shadowcolor=black@0.15:shadowx=2:shadowy=2:"
         f"x={wm_x}:y={wm_y},"
-        # Final 2.4s Dark Terminal Overlay + Custom Font Center End-Card
         f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.82:t=fill:enable='gte(t,{cta_start})',"
         f"drawtext=fontfile={font_path}:text='{line1}':expansion=none:"
         f"fontcolor=0xFFD700:fontsize=92:shadowcolor=black@0.9:shadowx=4:shadowy=4:"
@@ -323,7 +298,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
         "-vf", vf_chain,
         "-af", f"atempo={speed},volume={vol_shift}",
         "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
-        "-crf", "22", "-preset", "veryfast",  # Optimized for fast relay uploads while keeping 4K clarity
+        "-crf", "22", "-preset", "veryfast",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-map_metadata", "-1",
@@ -331,16 +306,9 @@ def mutate_video_for_account(input_path, output_path, font_path):
         output_path
     ]
 
-    result = subprocess.run(
-        cmd_with_audio,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=240
-    )
+    result = subprocess.run(cmd_with_audio, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
 
     if result.returncode != 0:
-        log("[INFO] Source has no audio stream, mastering 4K video-only stream...")
         cmd_video_only = [
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
             "-i", input_path,
@@ -352,13 +320,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
             "-metadata", f"creation_time={epoch_jitter}",
             output_path
         ]
-        res2 = subprocess.run(
-            cmd_video_only,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=240
-        )
+        res2 = subprocess.run(cmd_video_only, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
         if res2.returncode != 0:
             raise Exception(f"FFmpeg failed: {res2.stderr.decode('utf-8', errors='ignore')}")
 
@@ -367,22 +329,16 @@ def mutate_video_for_account(input_path, output_path, font_path):
     return output_path
 
 # ==========================================
-# 6. 4-RELAY GHOST UPLOAD (4K FILE TIMEOUTS)
+# 6. 4-RELAY GHOST UPLOAD
 # ==========================================
 def upload_for_meta_download(file_path):
     log("[STEP 3/4] Uploading 4K Master Reel to temporary ghost relay...")
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
 
-    # Relay 1: Uguu direct CDN (Fastest on GitHub Actions)
     try:
         log(" -> Trying Relay #1 (Uguu CDN)...")
         with open(file_path, "rb") as f:
-            res = requests.post(
-                "https://uguu.se/upload",
-                files={"files[]": f},
-                headers=headers,
-                timeout=(15, 75)
-            ).json()
+            res = requests.post("https://uguu.se/upload", files={"files[]": f}, headers=headers, timeout=(15, 75)).json()
         if res.get("success") and res.get("files"):
             url = res["files"][0]["url"]
             log(f"[SUCCESS] Relay #1 URL ready: {url}")
@@ -390,17 +346,10 @@ def upload_for_meta_download(file_path):
     except Exception as e:
         log(f" -> Relay #1 skipped ({e})")
 
-    # Relay 2: Catbox direct MP4 CDN
     try:
         log(" -> Trying Relay #2 (Catbox CDN)...")
         with open(file_path, "rb") as f:
-            res = requests.post(
-                "https://catbox.moe/user/api.php",
-                data={"reqtype": "fileupload"},
-                files={"fileToUpload": f},
-                headers=headers,
-                timeout=(15, 75)
-            )
+            res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
         if res.status_code == 200 and res.text.strip().startswith("https://"):
             url = res.text.strip()
             log(f"[SUCCESS] Relay #2 URL ready: {url}")
@@ -408,17 +357,10 @@ def upload_for_meta_download(file_path):
     except Exception as e:
         log(f" -> Relay #2 skipped ({e})")
 
-    # Relay 3: Litterbox 1h CDN
     try:
         log(" -> Trying Relay #3 (Litterbox CDN)...")
         with open(file_path, "rb") as f:
-            res = requests.post(
-                "https://litterbox.catbox.moe/resources/internals/api.php",
-                data={"reqtype": "fileupload", "time": "1h"},
-                files={"fileToUpload": f},
-                headers=headers,
-                timeout=(15, 75)
-            )
+            res = requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={"reqtype": "fileupload", "time": "1h"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
         if res.status_code == 200 and res.text.strip().startswith("https://"):
             url = res.text.strip()
             log(f"[SUCCESS] Relay #3 URL ready: {url}")
@@ -426,15 +368,9 @@ def upload_for_meta_download(file_path):
     except Exception as e:
         log(f" -> Relay #3 skipped ({e})")
 
-    # Relay 4: Tmpfiles CDN
     log(" -> Trying Relay #4 (Tmpfiles CDN)...")
     with open(file_path, "rb") as f:
-        response = requests.post(
-            "https://tmpfiles.org/api/v1/upload",
-            files={"file": f},
-            headers=headers,
-            timeout=(15, 75)
-        ).json()
+        response = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": f}, headers=headers, timeout=(15, 75)).json()
 
     if "data" not in response or "url" not in response["data"]:
         raise Exception(f"All 4 relays failed: {response}")
@@ -465,11 +401,7 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
     status_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{creation_id}"
 
     for attempt in range(25):
-        status_res = requests.get(
-            status_url,
-            params={"fields": "status_code,status", "access_token": token},
-            timeout=(10, 20)
-        ).json()
+        status_res = requests.get(status_url, params={"fields": "status_code,status", "access_token": token}, timeout=(10, 20)).json()
         status_code = status_res.get("status_code")
         log(f" -> Meta status check [{attempt+1}/25]: {status_code}")
 
@@ -482,11 +414,7 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
         raise Exception("Meta video processing timed out.")
 
     publish_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish"
-    publish_res = requests.post(
-        publish_url,
-        data={"creation_id": creation_id, "access_token": token},
-        timeout=(10, 30)
-    ).json()
+    publish_res = requests.post(publish_url, data={"creation_id": creation_id, "access_token": token}, timeout=(10, 30)).json()
 
     if "id" not in publish_res:
         raise Exception(f"Publish step failed: {publish_res}")
@@ -508,7 +436,7 @@ def main():
 
     selected_video, used_url, filename_id = ingest_single_fresh_reel(posted_history)
     if not selected_video:
-        log("[COMPLETE] All Reels in reel_links.txt and assets/ have already been posted! Add new links to reel_links.txt.")
+        log("[COMPLETE] All Reels in reel_links.txt and assets/ have already been posted!")
         return
 
     all_accounts = []
@@ -528,14 +456,12 @@ def main():
     if not all_accounts:
         raise RuntimeError("Zero Instagram Business accounts found on your tokens.")
 
-    # Permanently lock this Reel into history BEFORE account loop so it never repeats
     if used_url:
         mark_as_posted(used_url)
         remove_link_from_queue(used_url)
     if filename_id:
         mark_as_posted(filename_id)
 
-    # Generate a unique caption per account for this wave
     caption_batch = generate_unique_caption_batch(len(all_accounts))
 
     success_count = 0
@@ -559,13 +485,11 @@ def main():
             if os.path.exists(mutated_output):
                 os.remove(mutated_output)
 
-                if index < len(all_accounts) - 1:
-            # 20 to 60 seconds random delay between accounts
+        if index < len(all_accounts) - 1:
             jitter_seconds = random.randint(20, 60)
             jitter_mins = round(jitter_seconds / 60, 1)
             log(f"[COOLDOWN] Waiting {jitter_mins} minutes ({jitter_seconds}s) before next account...")
             time.sleep(jitter_seconds)
-
 
     if os.path.exists(selected_video):
         os.remove(selected_video)
