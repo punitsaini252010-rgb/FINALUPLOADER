@@ -28,6 +28,21 @@ HISTORY_FILE = "posted_history.txt"
 ASSETS_DIR = "assets"
 CUSTOM_FONT_PATH = "Montserrat-ExtraBold.ttf"
 
+# US/UK Tier-1 Peak Schedule Reference Map (UTC Hour -> Target Market Window)
+TIER1_SCHEDULE_MAP = {
+    1: "US East Prime (8:30 PM EST) | Texas (7:30 PM CST) | US West (5:30 PM PST)",
+    3: "US West Prime (7:30 PM PST) | US East Late Night (10:30 PM EST)",
+    5: "US West Late Impulse (9:30 PM PST) | Australia Post-Work (4:30 PM AEDT)",
+    7: "UK Morning Wake-Up (7:30 AM GMT) | Australia Prime (6:30 PM AEDT)",
+    10: "UK Mid-Morning (10:00 AM GMT) | Singapore Post-Work (6:00 PM SGT) | Aus Night",
+    12: "UK Lunch Peak (12:00 PM GMT) | US East Wake-Up (7:00 AM EST) | Singapore Prime",
+    14: "US East Morning (9:30 AM EST) | UK Afternoon (2:30 PM GMT) | Dubai Evening",
+    17: "UK Post-Work Peak (5:00 PM GMT) | US East Lunch (12:00 PM EST) | Dubai Prime",
+    19: "UK Evening Prime (7:30 PM GMT) | Europe Prime (8:30 PM CET) | US Afternoon",
+    21: "UK Late Impulse (9:30 PM GMT) | US East Work Exit (4:30 PM EST) | Europe Night",
+    23: "US East Dinner Prime (6:30 PM EST) | Texas (5:30 PM CST) | UK Midnight"
+}
+
 # 55 Short, Single-Line Captions — "@ARCBLOODLINE30" is always Word #1 in CAPS.
 ARC_BASE_CAPTIONS = [
     "@ARCBLOODLINE30 Keep scrolling loser or enter ARC.",
@@ -172,6 +187,9 @@ def ingest_single_fresh_reel(posted_history):
                 "no_warnings": True,
                 "ignoreerrors": False,
                 "socket_timeout": 25,
+                "http_headers": {
+                    "Accept-Language": "en-US,en;q=0.9"
+                }
             }
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -232,7 +250,7 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 5. 4K UHD OPTIMIZED + UPPER-CENTER WATERMARK + END-CARD
+# 5. HEAVY STEALTH 4K + UPPER-CENTER WATERMARK + END-CARD
 # ==========================================
 def get_video_duration(input_path):
     try:
@@ -248,38 +266,55 @@ def get_video_duration(input_path):
         return 10.0
 
 def mutate_video_for_account(input_path, output_path, font_path):
-    log(f"[STEP 2/4] 4K Optimized Mastering + Upper-Center Watermark + End-Card ({os.path.basename(input_path)})...")
+    log(f"[STEP 2/4] Heavy Stealth 4K Mastering + Upper-Center Watermark + End-Card ({os.path.basename(input_path)})...")
 
-    crop_keep = round(random.uniform(0.993, 0.997), 4)
-    x_jitter = random.randint(1, 3)
-    y_jitter = random.randint(1, 3)
+    # Shave 0.12s - 0.55s off start so every account has unique keyframe timestamps
+    trim_start = round(random.uniform(0.12, 0.55), 3)
 
-    b_shift = round(random.uniform(-0.003, 0.003), 4)
-    c_shift = round(random.uniform(1.001, 1.005), 4)
-    s_shift = round(random.uniform(1.002, 1.007), 4)
-    g_shift = round(random.uniform(0.998, 1.003), 4)
-    speed = round(random.uniform(1.006, 1.014), 4)
-    vol_shift = round(random.uniform(1.002, 1.008), 4)
-    epoch_jitter = int(time.time()) - random.randint(120, 90000)
+    # Subtle spatial, rotation, flip & color shifts to bypass Meta vPDQ duplicate hash
+    crop_keep = round(random.uniform(0.975, 0.992), 4)
+    x_jitter = random.randint(2, 6)
+    y_jitter = random.randint(2, 6)
+    angle_deg = random.choice([-0.35, -0.25, 0.25, 0.35])
+    flip_filter = "hflip," if random.random() < 0.5 else ""
+    noise_level = random.randint(2, 3)
+
+    b_shift = round(random.uniform(-0.006, 0.006), 4)
+    c_shift = round(random.uniform(0.994, 1.010), 4)
+    s_shift = round(random.uniform(0.992, 1.014), 4)
+    g_shift = round(random.uniform(0.992, 1.008), 4)
+    speed = round(random.uniform(0.982, 1.028), 4)
+
+    # Audio pitch + EQ + tempo shift to break audio spectrogram matching
+    pitch_shift = round(random.uniform(0.980, 1.022), 4)
+    tempo_comp = round(speed / pitch_shift, 4)
+    tempo_comp = max(0.5, min(2.0, tempo_comp))
+    eq_gain = random.choice([-2, -1, 1, 2])
+    vol_shift = round(random.uniform(0.985, 1.025), 3)
+    epoch_jitter = int(time.time()) - random.randint(300, 172800)
 
     raw_duration = get_video_duration(input_path)
-    final_duration = raw_duration / speed
+    effective_raw = max(3.5, raw_duration - trim_start)
+    final_duration = effective_raw / speed
     cta_start = round(max(1.5, final_duration - 2.4), 2)
 
     line1 = "KEEP SCROLLING LOSER"
     line2 = "OR ENTER ARC AND MAKE MONEY"
 
-    # Upper-center watermark position with micro-pixel jitter per account
-    wm_x_offset = random.randint(-3, 3)
-    wm_y = 340 + random.randint(0, 6)
+    # Upper-center large ARC watermark position with micro-pixel jitter per account
+    wm_x_offset = random.randint(-6, 6)
+    wm_y = 340 + random.randint(-8, 8)
 
     vf_chain = (
         f"setpts=PTS/{speed},"
+        f"{flip_filter}"
+        f"rotate={angle_deg}*PI/180:bilinear=1:fillcolor=black,"
         f"crop=iw*{crop_keep}:ih*{crop_keep}:(iw-ow)/2+{x_jitter}:(ih-oh)/2+{y_jitter},"
         f"scale=2160:3840:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,"
         f"crop=2160:3840,"
         f"eq=brightness={b_shift}:contrast={c_shift}:saturation={s_shift}:gamma={g_shift},"
-        f"unsharp=5:5:0.32:5:5:0.0,"
+        f"noise=alls={noise_level}:allf=t,"
+        f"unsharp=5:5:0.34:5:5:0.0,"
         f"drawtext=fontfile={font_path}:text='ARC':expansion=none:"
         f"fontcolor=white@0.32:fontsize=130:shadowcolor=black@0.25:shadowx=3:shadowy=3:"
         f"x=(w-text_w)/2+{wm_x_offset}:y={wm_y},"
@@ -293,15 +328,27 @@ def mutate_video_for_account(input_path, output_path, font_path):
         f"x=(w-text_w)/2:y=(h/2)+35:enable='gte(t,{cta_start})'"
     )
 
+    af_chain = (
+        f"asetrate=48000*{pitch_shift},"
+        f"aresample=48000,"
+        f"atempo={tempo_comp},"
+        f"equalizer=f=1000:width_type=h:width=200:g={eq_gain},"
+        f"volume={vol_shift}"
+    )
+
+    crf_val = str(random.choice([21, 22, 23]))
+
     cmd_with_audio = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", str(trim_start),
         "-i", input_path,
         "-vf", vf_chain,
-        "-af", f"atempo={speed},volume={vol_shift}",
+        "-af", af_chain,
         "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
-        "-crf", "22", "-preset", "veryfast",
+        "-crf", crf_val, "-preset", "veryfast",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+        "-metadata:s:a:0", "language=eng",
         "-map_metadata", "-1",
         "-metadata", f"creation_time={epoch_jitter}",
         output_path
@@ -312,10 +359,11 @@ def mutate_video_for_account(input_path, output_path, font_path):
     if result.returncode != 0:
         cmd_video_only = [
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", str(trim_start),
             "-i", input_path,
             "-vf", vf_chain,
             "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
-            "-crf", "22", "-preset", "veryfast",
+            "-crf", crf_val, "-preset", "veryfast",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             "-an", "-map_metadata", "-1",
             "-metadata", f"creation_time={epoch_jitter}",
@@ -326,7 +374,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
             raise Exception(f"FFmpeg failed: {res2.stderr.decode('utf-8', errors='ignore')}")
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
-    log(f"[SUCCESS] 4K Optimized Master finished ({size_mb:.2f} MB).")
+    log(f"[SUCCESS] Heavy Stealth 4K Master finished ({size_mb:.2f} MB).")
     return output_path
 
 # ==========================================
@@ -334,7 +382,10 @@ def mutate_video_for_account(input_path, output_path, font_path):
 # ==========================================
 def upload_for_meta_download(file_path):
     log("[STEP 3/4] Uploading 4K Master Reel to temporary ghost relay...")
-    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9"
+    }
 
     try:
         log(" -> Trying Relay #1 (Uguu CDN)...")
@@ -426,7 +477,14 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
 # 8. MAIN ENGINE EXECUTION
 # ==========================================
 def main():
-    log("=== ARC 4K PUBLISHING ENGINE STARTED ===")
+    current_utc_hour = time.gmtime().tm_hour
+    target_market = TIER1_SCHEDULE_MAP.get(
+        current_utc_hour,
+        "Global US/UK/Tier-1 High-Spending Buyer Window"
+    )
+    log("=== ARC 4K US/UK TIER-1 PUBLISHING ENGINE STARTED ===")
+    log(f"[TARGET WAVE] UTC Hour {current_utc_hour:02d}:00 -> {target_market}")
+
     active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
     if not active_tokens:
         raise ValueError("FATAL: META_TOKEN_1 missing in GitHub Secrets!")
@@ -456,6 +514,9 @@ def main():
 
     if not all_accounts:
         raise RuntimeError("Zero Instagram Business accounts found on your tokens.")
+
+    # Shuffle account posting order every wave so Meta never sees a fixed sequential pattern
+    random.shuffle(all_accounts)
 
     if used_url:
         mark_as_posted(used_url)
