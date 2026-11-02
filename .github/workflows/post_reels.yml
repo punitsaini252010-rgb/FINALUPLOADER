@@ -1,11 +1,9 @@
-name: ARC 11x US-UK Tier-1 Network Engine
+name: ARC US/UK Content Farm Engine
 
 on:
   schedule:
-    # 3 Hourly Waves (10:00, 12:00, 17:00 UTC)
-    - cron: '0 10,12,17 * * *'
-    # 8 Half-Hour Waves (01:30, 03:30, 05:30, 07:30, 14:30, 19:30, 21:30, 23:30 UTC)
-    - cron: '30 1,3,5,7,14,19,21,23 * * *'
+    # Triggers every 4 hours precisely at 00:00, 04:00, 08:00, 12:00, 16:00, and 20:00 UTC
+    - cron: '0 0,4,8,12,16,20 * * *'
   workflow_dispatch:
 
 permissions:
@@ -35,18 +33,19 @@ jobs:
       - name: Install Python Dependencies
         run: pip install --upgrade pip && pip install -r requirements.txt
 
-      - name: Run ARC Publishing Engine (Live Unbuffered Logs)
+      - name: Run ARC Publishing & Auto-DM Engine
         env:
           META_TOKEN_1: ${{ secrets.META_TOKEN_1 }}
           META_TOKEN_2: ${{ secrets.META_TOKEN_2 }}
+          ARC_DIRECT_URL: ${{ secrets.ARC_DIRECT_URL }}
           PYTHONUNBUFFERED: "1"
         run: python -u arc_engine.py
 
-      - name: Lock Posted Reel History Back to Repo (Never Repeat)
+      - name: Lock History, Round-Robin Cursor & Replied Comments Back to Repo
         if: always()
         run: |
           git config user.name "ARC Auto-Ledger"
           git config user.email "actions@github.com"
-          touch posted_history.txt
-          git add posted_history.txt reel_links.txt
-          git diff --staged --quiet || (git commit -m "chore: lock posted reel in history [skip ci]" && git pull --rebase origin main && git push)
+          touch posted_history.txt account_cursor.txt replied_comments.txt
+          git add posted_history.txt reel_links.txt account_cursor.txt replied_comments.txt
+          git diff --staged --quiet || (git commit -m "chore: sync US/UK virality ledger [skip ci]" && git pull --rebase origin main && git push)
