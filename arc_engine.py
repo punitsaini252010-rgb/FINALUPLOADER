@@ -6,7 +6,6 @@ import requests
 import random
 import yt_dlp
 
-# Force real-time unbuffered output on GitHub Actions so logs never freeze
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
@@ -14,7 +13,7 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 # ==========================================
-# 1. CONFIGURATION & 55 UNIQUE 1-CLICK CAPTIONS
+# 1. CONFIGURATION & ANONYMOUS BRAND SETTINGS
 # ==========================================
 META_TOKENS = [
     os.getenv("META_TOKEN_1"),
@@ -22,256 +21,173 @@ META_TOKENS = [
 ]
 
 GRAPH_API_VERSION = "v20.0"
+ARC_DIRECT_URL = os.getenv("ARC_DIRECT_URL") or "https://whop.com/your-arc-link"
+
+ACCOUNTS_PER_WAVE = 23
+MAX_ACCOUNTS_PER_VIDEO = 1
 
 LINKS_FILE = "reel_links.txt"
 HISTORY_FILE = "posted_history.txt"
+CURSOR_FILE = "account_cursor.txt"
+REPLIED_COMMENTS_FILE = "replied_comments.txt"
 ASSETS_DIR = "assets"
 CUSTOM_FONT_PATH = "Montserrat-ExtraBold.ttf"
 
-# US/UK Tier-1 Peak Schedule Reference Map (UTC Hour -> Target Market Window)
-TIER1_SCHEDULE_MAP = {
-    1: "US East Prime (8:30 PM EST) | Texas (7:30 PM CST) | US West (5:30 PM PST)",
-    3: "US West Prime (7:30 PM PST) | US East Late Night (10:30 PM EST)",
-    5: "US West Late Impulse (9:30 PM PST) | Australia Post-Work (4:30 PM AEDT)",
-    7: "UK Morning Wake-Up (7:30 AM GMT) | Australia Prime (6:30 PM AEDT)",
-    10: "UK Mid-Morning (10:00 AM GMT) | Singapore Post-Work (6:00 PM SGT) | Aus Night",
-    12: "UK Lunch Peak (12:00 PM GMT) | US East Wake-Up (7:00 AM EST) | Singapore Prime",
-    14: "US East Morning (9:30 AM EST) | UK Afternoon (2:30 PM GMT) | Dubai Evening",
-    17: "UK Post-Work Peak (5:00 PM GMT) | US East Lunch (12:00 PM EST) | Dubai Prime",
-    19: "UK Evening Prime (7:30 PM GMT) | Europe Prime (8:30 PM CET) | US Afternoon",
-    21: "UK Late Impulse (9:30 PM GMT) | US East Work Exit (4:30 PM EST) | Europe Night",
-    23: "US East Dinner Prime (6:30 PM EST) | Texas (5:30 PM CST) | UK Midnight"
-}
+# Curated High-End Cinematic B-Roll Sources (Dark Luxury, Trading Terminals, Architecture, Workspaces)
+CINEMATIC_BROLL_SOURCES = [
+    "https://www.youtube.com/watch?v=LXb3EKWsInQ", # Cinematic Cityscapes / Luxury B-roll placeholder links
+    "https://www.youtube.com/watch?v=3JZ_D3ELwOQ", 
+    "https://www.youtube.com/watch?v=ScMzIvxBSi4"
+]
 
-# 55 Short, Single-Line Captions — "@ARCBLOODLINE30" is always Word #1 in CAPS.
 ARC_BASE_CAPTIONS = [
-    "@ARCBLOODLINE30 Keep scrolling loser or enter ARC.",
-    "@ARCBLOODLINE30 Enter ARC and make real money now.",
-    "@ARCBLOODLINE30 Stop watching others win. Lock in.",
-    "@ARCBLOODLINE30 Scroll back to broke or enter ARC.",
-    "@ARCBLOODLINE30 Your only exit out of the matrix.",
-    "@ARCBLOODLINE30 Die average or build your empire.",
-    "@ARCBLOODLINE30 Weak minds scroll. Winners enter.",
-    "@ARCBLOODLINE30 Stop living like a slave. Join us.",
-    "@ARCBLOODLINE30 Break the bloodline curse inside.",
-    "@ARCBLOODLINE30 Nobody is coming to save you. Act.",
-    "@ARCBLOODLINE30 Escape the 9-5 cage right now.",
-    "@ARCBLOODLINE30 First 1,000 terminal spots FREE.",
-    "@ARCBLOODLINE30 Claim your free ARC Starter Kit.",
-    "@ARCBLOODLINE30 The 99% scroll. The 1% lock in.",
-    "@ARCBLOODLINE30 Own your life or stay owned.",
-    "@ARCBLOODLINE30 Stop wasting years in a cubicle.",
-    "@ARCBLOODLINE30 Real wealth starts inside the ARC.",
-    "@ARCBLOODLINE30 Swipe to stay broke or enter now.",
-    "@ARCBLOODLINE30 Unlock the private ARC terminal.",
-    "@ARCBLOODLINE30 Build your fortune inside ARC.",
-    "@ARCBLOODLINE30 Spectators scroll. Builders enter.",
-    "@ARCBLOODLINE30 Zero excuses left. Enter the ARC.",
-    "@ARCBLOODLINE30 Make money or keep making excuses.",
-    "@ARCBLOODLINE30 Step out of the herd right now.",
-    "@ARCBLOODLINE30 Gates lock at member #1,000.",
-    "@ARCBLOODLINE30 Secure your bloodline inside ARC.",
-    "@ARCBLOODLINE30 Stop working to make another rich.",
-    "@ARCBLOODLINE30 Total sovereignty starts right here.",
-    "@ARCBLOODLINE30 Pawns keep scrolling. Kings enter.",
-    "@ARCBLOODLINE30 Change your reality inside ARC.",
-    "@ARCBLOODLINE30 Free ARC Vault access in bio.",
-    "@ARCBLOODLINE30 Don't wake up broke again tomorrow.",
-    "@ARCBLOODLINE30 Trade brainrot for real cashflow.",
-    "@ARCBLOODLINE30 Every scroll costs you your future.",
-    "@ARCBLOODLINE30 Lock into the ARC system today.",
-    "@ARCBLOODLINE30 Take command of your income now.",
-    "@ARCBLOODLINE30 Leave the broke mindset behind.",
-    "@ARCBLOODLINE30 Your bloodline depends on this move.",
-    "@ARCBLOODLINE30 Stop spectating luxury. Live it.",
-    "@ARCBLOODLINE30 Access the $100 Starter Kit free.",
-    "@ARCBLOODLINE30 Losers swipe up. Winners tap here.",
-    "@ARCBLOODLINE30 The system wants you broke. Rebel.",
-    "@ARCBLOODLINE30 Enter the vault and print money.",
-    "@ARCBLOODLINE30 Power and freedom live inside ARC.",
-    "@ARCBLOODLINE30 Refuse to die average. Enter now.",
-    "@ARCBLOODLINE30 One click separates you from broke.",
-    "@ARCBLOODLINE30 Stop begging for a paycheck. Build.",
-    "@ARCBLOODLINE30 Outwork everyone inside the ARC.",
-    "@ARCBLOODLINE30 Turn your ambition into pure cash.",
-    "@ARCBLOODLINE30 Stop scrolling your youth away.",
-    "@ARCBLOODLINE30 Claim your seat inside ARC free.",
-    "@ARCBLOODLINE30 Only builders survive. Enter ARC.",
-    "@ARCBLOODLINE30 Kill complacency. Enter the vault.",
-    "@ARCBLOODLINE30 Rewrite your family tree inside.",
-    "@ARCBLOODLINE30 Tap now or stay trapped forever."
+    'Comment "ARC" for free Vault access or tap @ARCBLOODLINE30',
+    '@ARCBLOODLINE30 Comment "ARC" and I\'ll DM you the link.',
+    'Comment "ARC" to unlock the $100 Starter Kit -> @ARCBLOODLINE30',
+    '@ARCBLOODLINE30 Drop "ARC" below for instant terminal entry.',
+    'First 1,000 spots FREE. Comment "ARC" or tap @ARCBLOODLINE30',
+    '@ARCBLOODLINE30 Comment "ARC" below to escape the 9-5 cage.',
+    'Weak minds scroll. Winners comment "ARC" -> @ARCBLOODLINE30',
+    '@ARCBLOODLINE30 Reply "ARC" below for free Vault access.',
+    'Comment "ARC" for the private blueprint or tap @ARCBLOODLINE30',
+    '@ARCBLOODLINE30 Comment "ARC" and check your DMs immediately.'
+]
+
+# Hard-Hitting Anonymous Brand Text Frameworks (Flashed on screen)
+ARC_VALUE_HOOKS = [
+    ("THE 9-5 MATRIX IS DESIGNED", "TO KEEP YOU BROKE FOR 40 YEARS."),
+    ("BUILDING DIGITAL ASSETS", "IS THE ONLY WAY OUT IN 2026."),
+    ("STOP CONSUMING BRAINROT.", "START PRINTING CASHFLOW INSIDE ARC."),
+    ("YOU DON'T NEED LUCK.", "YOU NEED A SYSTEM THAT PRINTS."),
+    ("THE FIRST 1,000 TERMINAL SPOTS", "ARE 100% FREE INSIDE ARC.")
+]
+
+FIRST_COMMENT_TEMPLATES = [
+    'Comment "ARC" below and I\'ll DM you the free ARC Vault + $100 Starter Kit link directly ⚡ (or tap @ARCBLOODLINE30)',
+    'Drop "ARC" in the replies for instant free access in your DMs 🔓 Backup link in @ARCBLOODLINE30 bio.',
+    'First 1,000 spots are 100% free — reply "ARC" right here and check your DMs ⚡ (@ARCBLOODLINE30)'
+]
+
+PUBLIC_REPLY_TEMPLATES = [
+    "Just sent the free ARC Vault link straight to your DMs ⚡ Check your message requests!",
+    "Check your DMs right now — sent you the direct ARC invite + Starter Kit 🔓",
+    "Sent! Check your inbox/requests for the ARC terminal link (or tap @ARCBLOODLINE30) ⚡"
 ]
 
 def generate_unique_caption_batch(count):
     pool = list(ARC_BASE_CAPTIONS)
     random.shuffle(pool)
-    micro_tags = ["", " ↓", " ⚡", " 🗝️", " 🔓", " ♟️"]
-    selected = []
-    for i in range(count):
-        base = pool[i % len(pool)]
-        suffix = random.choice(micro_tags)
-        caption = f"{base}{suffix}".strip()
-        selected.append(caption)
-    return selected
+    micro_tags = ["", " ↓", " ⚡", " 🗝️", " 🔓"]
+    return [f"{pool[i % len(pool)]}{random.choice(micro_tags)}".strip() for i in range(count)]
 
 # ==========================================
-# 2. CUSTOM FONT AUTO-LOADER
+# 2. B-ROLL QUEUE INGESTER (FALLBACK TO CINEMATIC SOURCES)
+# ==========================================
+def ingest_single_fresh_reel(posted_history):
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    
+    # If links file is empty or missing, inject cinematic B-roll sources automatically
+    if not os.path.exists(LINKS_FILE) or os.path.getsize(LINKS_FILE) < 10:
+        with open(LINKS_FILE, "w", encoding="utf-8") as f:
+            for src in CINEMATIC_BROLL_SOURCES:
+                f.write(f"{src}\n")
+
+    with open(LINKS_FILE, "r", encoding="utf-8") as f:
+        all_urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+    for target_url in [u for u in all_urls if u not in posted_history]:
+        log(f"[STEP 1/4] Downloading cinematic B-roll background: {target_url}")
+        ydl_opts = {
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "outtmpl": os.path.join(ASSETS_DIR, "cinematic_%(id)s.%(ext)s"),
+            "merge_output_format": "mp4",
+            "quiet": True,
+            "no_warnings": True,
+            "socket_timeout": 25,
+            "http_headers": {"Accept-Language": "en-US,en;q=0.9"}
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(target_url, download=True)
+                downloaded_file = f"cinematic_{info.get('id', 'unknown')}.mp4"
+                full_path = os.path.join(ASSETS_DIR, downloaded_file)
+
+                if os.path.exists(full_path):
+                    append_to_set_file(HISTORY_FILE, target_url, posted_history)
+                    log(f"[SUCCESS] Cinematic B-roll ready: {downloaded_file}")
+                    return full_path
+        except Exception as e:
+            log(f"[WARNING] B-roll download failed ({target_url}): {e}. Rotating...")
+            append_to_set_file(HISTORY_FILE, target_url, posted_history)
+    return None
+
+# ==========================================
+# 3. ROUND-ROBIN QUEUE & LEDGER MANAGERS
+# ==========================================
+def select_round_robin_accounts(all_accounts, batch_size):
+    sorted_accs = sorted(all_accounts, key=lambda x: str(x["ig_user_id"]))
+    total = len(sorted_accs)
+    start_idx = 0
+
+    if os.path.exists(CURSOR_FILE):
+        try:
+            with open(CURSOR_FILE, "r", encoding="utf-8") as f:
+                start_idx = int(f.read().strip()) % total
+        except Exception:
+            start_idx = 0
+
+    selected = [sorted_accs[(start_idx + i) % total] for i in range(min(batch_size, total))]
+    next_cursor = (start_idx + len(selected)) % total
+
+    with open(CURSOR_FILE, "w", encoding="utf-8") as f:
+        f.write(str(next_cursor))
+
+    log(f"[ROUND-ROBIN] Cursor {start_idx} -> {next_cursor} (Selected {len(selected)}/{total} accounts).")
+    return selected
+
+def load_set_file(filepath):
+    if not os.path.exists(filepath):
+        return set()
+    with open(filepath, "r", encoding="utf-8") as f:
+        return set(line.strip() for line in f if line.strip())
+
+def append_to_set_file(filepath, identifier, memory_set):
+    if not identifier:
+        return
+    clean = str(identifier).strip()
+    if clean not in memory_set:
+        memory_set.add(clean)
+        with open(filepath, "a", encoding="utf-8") as f:
+            f.write(f"{clean}\n")
+
+# ==========================================
+# 4. CUSTOM FONT & KINETIC TYPOGRAPHY MASTERING
 # ==========================================
 def ensure_custom_font():
     if os.path.exists(CUSTOM_FONT_PATH) and os.path.getsize(CUSTOM_FONT_PATH) > 10000:
         return CUSTOM_FONT_PATH
-
     font_url = "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf"
     try:
-        log("[INFO] Downloading clean custom font (Montserrat-ExtraBold)...")
         res = requests.get(font_url, timeout=(10, 20))
         if res.status_code == 200 and len(res.content) > 10000:
             with open(CUSTOM_FONT_PATH, "wb") as f:
                 f.write(res.content)
-            log("[SUCCESS] Custom font Montserrat-ExtraBold loaded.")
             return CUSTOM_FONT_PATH
-    except Exception as e:
-        log(f"[WARNING] Custom font download skipped ({e}), using system bold font.")
+    except Exception:
+        pass
+    return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-    fallback = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    return fallback
-
-# ==========================================
-# 3. PERMANENT DEDUPLICATION & INGESTION
-# ==========================================
-def load_posted_history():
-    if not os.path.exists(HISTORY_FILE):
-        return set()
-    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f if line.strip())
-
-def mark_as_posted(identifier):
-    if not identifier:
-        return
-    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{identifier.strip()}\n")
-
-def remove_link_from_queue(used_url):
-    if not used_url or not os.path.exists(LINKS_FILE):
-        return
-    with open(LINKS_FILE, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    with open(LINKS_FILE, "w", encoding="utf-8") as f:
-        for line in lines:
-            if line.strip() != used_url.strip():
-                f.write(line)
-
-def ingest_single_fresh_reel(posted_history):
-    os.makedirs(ASSETS_DIR, exist_ok=True)
-
-    for existing in os.listdir(ASSETS_DIR):
-        if existing.lower().endswith(".mp4") and existing in posted_history:
-            try:
-                os.remove(os.path.join(ASSETS_DIR, existing))
-            except Exception:
-                pass
-
-    if os.path.exists(LINKS_FILE):
-        with open(LINKS_FILE, "r", encoding="utf-8") as f:
-            all_urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-
-        fresh_urls = [u for u in all_urls if u not in posted_history]
-
-        for target_url in fresh_urls:
-            log(f"[STEP 1/4] Downloading fresh unposted Reel: {target_url}")
-            ydl_opts = {
-                "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "outtmpl": os.path.join(ASSETS_DIR, "curated_%(id)s.%(ext)s"),
-                "merge_output_format": "mp4",
-                "quiet": True,
-                "no_warnings": True,
-                "ignoreerrors": False,
-                "socket_timeout": 25,
-                "http_headers": {
-                    "Accept-Language": "en-US,en;q=0.9"
-                }
-            }
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(target_url, download=True)
-                    vid_id = info.get("id", "unknown")
-                    downloaded_file = f"curated_{vid_id}.mp4"
-                    full_path = os.path.join(ASSETS_DIR, downloaded_file)
-
-                    if downloaded_file in posted_history:
-                        log(f"[SKIP] Video ID {downloaded_file} was already posted. Removing link...")
-                        mark_as_posted(target_url)
-                        remove_link_from_queue(target_url)
-                        if os.path.exists(full_path):
-                            os.remove(full_path)
-                        continue
-
-                    if os.path.exists(full_path):
-                        log(f"[SUCCESS] Fresh Reel downloaded: {downloaded_file}")
-                        return full_path, target_url, downloaded_file
-            except Exception as e:
-                log(f"[WARNING] Link failed ({target_url}): {e}. Removing broken link...")
-                mark_as_posted(target_url)
-                remove_link_from_queue(target_url)
-
-    unposted_local = [
-        f for f in os.listdir(ASSETS_DIR)
-        if f.lower().endswith(".mp4") and f not in posted_history
-    ]
-    if unposted_local:
-        chosen = unposted_local[0]
-        return os.path.join(ASSETS_DIR, chosen), None, chosen
-
-    return None, None, None
-
-# ==========================================
-# 4. DISCOVER ALL CONNECTED IG ACCOUNTS
-# ==========================================
-def get_connected_instagram_accounts(token):
-    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/accounts"
-    params = {
-        "fields": "id,name,instagram_business_account",
-        "limit": 100,
-        "access_token": token
-    }
-    response = requests.get(url, params=params, timeout=(10, 20)).json()
-    if "error" in response:
-        raise Exception(f"Token error: {response['error'].get('message')}")
-
-    accounts = []
-    for page in response.get("data", []):
-        ig_biz = page.get("instagram_business_account")
-        if ig_biz and "id" in ig_biz:
-            accounts.append({
-                "page_name": page.get("name", "ARC_Node"),
-                "ig_user_id": ig_biz["id"],
-                "token": token
-            })
-    return accounts
-
-# ==========================================
-# 5. HEAVY STEALTH 4K + UPPER-CENTER WATERMARK + END-CARD
-# ==========================================
 def get_video_duration(input_path):
     try:
-        cmd = [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            input_path
-        ]
+        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", input_path]
         res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
         return float(res.stdout.decode("utf-8").strip())
     except Exception:
-        return 10.0
+        return 12.0
 
 def mutate_video_for_account(input_path, output_path, font_path):
-    log(f"[STEP 2/4] Heavy Stealth 4K Mastering + Upper-Center Watermark + End-Card ({os.path.basename(input_path)})...")
-
-    # Shave 0.12s - 0.55s off start so every account has unique keyframe timestamps
-    trim_start = round(random.uniform(0.12, 0.55), 3)
-
-    # Subtle spatial, rotation, flip & color shifts to bypass Meta vPDQ duplicate hash
+    log(f"[STEP 2/4] Anonymous Brand Kinetic Typography Mastering ({os.path.basename(input_path)})...")
+    trim_start = round(random.uniform(0.12, 1.5), 3)
     crop_keep = round(random.uniform(0.975, 0.992), 4)
     x_jitter = random.randint(2, 6)
     y_jitter = random.randint(2, 6)
@@ -279,184 +195,116 @@ def mutate_video_for_account(input_path, output_path, font_path):
     flip_filter = "hflip," if random.random() < 0.5 else ""
     noise_level = random.randint(2, 3)
 
-    b_shift = round(random.uniform(-0.006, 0.006), 4)
-    c_shift = round(random.uniform(0.994, 1.010), 4)
-    s_shift = round(random.uniform(0.992, 1.014), 4)
-    g_shift = round(random.uniform(0.992, 1.008), 4)
-    speed = round(random.uniform(0.982, 1.028), 4)
-
-    # Audio pitch + EQ + tempo shift to break audio spectrogram matching
-    pitch_shift = round(random.uniform(0.980, 1.022), 4)
-    tempo_comp = round(speed / pitch_shift, 4)
-    tempo_comp = max(0.5, min(2.0, tempo_comp))
-    eq_gain = random.choice([-2, -1, 1, 2])
-    vol_shift = round(random.uniform(0.985, 1.025), 3)
+    b_shift = round(random.uniform(-0.008, 0.008), 4)
+    c_shift = round(random.uniform(0.992, 1.012), 4)
+    s_shift = round(random.uniform(0.990, 1.015), 4)
+    speed = round(random.uniform(0.985, 1.025), 4)
     epoch_jitter = int(time.time()) - random.randint(300, 172800)
 
     raw_duration = get_video_duration(input_path)
-    effective_raw = max(3.5, raw_duration - trim_start)
-    final_duration = effective_raw / speed
-    cta_start = round(max(1.5, final_duration - 2.4), 2)
+    final_duration = max(5.0, (raw_duration - trim_start) / speed)
+    cta_start = round(max(2.0, final_duration - 2.5), 2)
 
-    line1 = "KEEP SCROLLING LOSER"
-    line2 = "OR ENTER ARC AND MAKE MONEY"
+    # Pick a random high-impact ARC value hook for on-screen text
+    hook_top, hook_bottom = random.choice(ARC_VALUE_HOOKS)
+    cta_line1 = "COMMENT 'ARC' FOR FREE ACCESS"
+    cta_line2 = "OR TAP @ARCBLOODLINE30 IN BIO"
 
-    # Upper-center large ARC watermark position with micro-pixel jitter per account
     wm_x_offset = random.randint(-6, 6)
     wm_y = 340 + random.randint(-8, 8)
 
+    # FFmpeg filter chain embedding kinetic text directly over cinematic B-roll
     vf_chain = (
-        f"setpts=PTS/{speed},"
-        f"{flip_filter}"
+        f"setpts=PTS/{speed},{flip_filter}"
         f"rotate={angle_deg}*PI/180:bilinear=1:fillcolor=black,"
         f"crop=iw*{crop_keep}:ih*{crop_keep}:(iw-ow)/2+{x_jitter}:(ih-oh)/2+{y_jitter},"
         f"scale=2160:3840:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,"
         f"crop=2160:3840,"
-        f"eq=brightness={b_shift}:contrast={c_shift}:saturation={s_shift}:gamma={g_shift},"
-        f"noise=alls={noise_level}:allf=t,"
-        f"unsharp=5:5:0.34:5:5:0.0,"
+        f"eq=brightness={b_shift}:contrast={c_shift}:saturation={s_shift},"
+        f"noise=alls={noise_level}:allf=t,unsharp=5:5:0.34:5:5:0.0,"
+        # Permanent Brand Watermark
         f"drawtext=fontfile={font_path}:text='ARC':expansion=none:"
-        f"fontcolor=white@0.32:fontsize=130:shadowcolor=black@0.25:shadowx=3:shadowy=3:"
+        f"fontcolor=white@0.35:fontsize=130:shadowcolor=black@0.3:shadowx=3:shadowy=3:"
         f"x=(w-text_w)/2+{wm_x_offset}:y={wm_y},"
-        f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.82:t=fill:enable='gte(t,{cta_start})',"
-        f"drawtext=fontfile={font_path}:text='{line1}':expansion=none:"
-        f"fontcolor=0xFFD700:fontsize=92:shadowcolor=black@0.9:shadowx=4:shadowy=4:"
+        # Kinetic Top Hook (Yellow Accent)
+        f"drawtext=fontfile={font_path}:text='{hook_top}':expansion=none:"
+        f"fontcolor=0xFFD700:fontsize=76:shadowcolor=black@0.9:shadowx=4:shadowy=4:"
+        f"box=1:boxcolor=black@0.85:boxborderw=24:"
+        f"x=(w-text_w)/2:y=(h/2)-180:enable='lt(t,{cta_start})',"
+        # Kinetic Bottom Hook (White)
+        f"drawtext=fontfile={font_path}:text='{hook_bottom}':expansion=none:"
+        f"fontcolor=white:fontsize=70:shadowcolor=black@0.9:shadowx=4:shadowy=4:"
+        f"box=1:boxcolor=black@0.85:boxborderw=24:"
+        f"x=(w-text_w)/2:y=(h/2)-70:enable='lt(t,{cta_start})',"
+        # Final CTA End Card Overlay
+        f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.88:t=fill:enable='gte(t,{cta_start})',"
+        f"drawtext=fontfile={font_path}:text='{cta_line1}':expansion=none:"
+        f"fontcolor=0xFFD700:fontsize=84:shadowcolor=black@0.9:shadowx=4:shadowy=4:"
         f"x=(w-text_w)/2:y=(h/2)-95:enable='gte(t,{cta_start})',"
-        f"drawtext=fontfile={font_path}:text='{line2}':expansion=none:"
-        f"fontcolor=white:fontsize=74:"
-        f"box=1:boxcolor=black@0.92:boxborderw=34:"
+        f"drawtext=fontfile={font_path}:text='{cta_line2}':expansion=none:"
+        f"fontcolor=white:fontsize=70:box=1:boxcolor=black@0.92:boxborderw=34:"
         f"x=(w-text_w)/2:y=(h/2)+35:enable='gte(t,{cta_start})'"
     )
 
-    af_chain = (
-        f"asetrate=48000*{pitch_shift},"
-        f"aresample=48000,"
-        f"atempo={tempo_comp},"
-        f"equalizer=f=1000:width_type=h:width=200:g={eq_gain},"
-        f"volume={vol_shift}"
-    )
-
     crf_val = str(random.choice([21, 22, 23]))
-
-    cmd_with_audio = [
+    cmd = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-        "-ss", str(trim_start),
-        "-i", input_path,
-        "-vf", vf_chain,
-        "-af", af_chain,
+        "-ss", str(trim_start), "-i", input_path, "-vf", vf_chain,
         "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
-        "-crf", crf_val, "-preset", "veryfast",
-        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-        "-metadata:s:a:0", "language=eng",
-        "-map_metadata", "-1",
-        "-metadata", f"creation_time={epoch_jitter}",
-        output_path
+        "-crf", crf_val, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        "-an", "-map_metadata", "-1", "-metadata", f"creation_time={epoch_jitter}", output_path
     ]
 
-    result = subprocess.run(cmd_with_audio, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
-
+    result = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
     if result.returncode != 0:
-        cmd_video_only = [
-            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-ss", str(trim_start),
-            "-i", input_path,
-            "-vf", vf_chain,
-            "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
-            "-crf", crf_val, "-preset", "veryfast",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-            "-an", "-map_metadata", "-1",
-            "-metadata", f"creation_time={epoch_jitter}",
-            output_path
-        ]
-        res2 = subprocess.run(cmd_video_only, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
-        if res2.returncode != 0:
-            raise Exception(f"FFmpeg failed: {res2.stderr.decode('utf-8', errors='ignore')}")
-
-    size_mb = os.path.getsize(output_path) / (1024 * 1024)
-    log(f"[SUCCESS] Heavy Stealth 4K Master finished ({size_mb:.2f} MB).")
+        raise Exception(f"FFmpeg failed: {result.stderr.decode('utf-8', errors='ignore')}")
     return output_path
 
 # ==========================================
-# 6. 4-RELAY GHOST UPLOAD
+# 5. RELAY UPLOAD, PUBLISH & AUTO-DM SWEEP
 # ==========================================
 def upload_for_meta_download(file_path):
-    log("[STEP 3/4] Uploading 4K Master Reel to temporary ghost relay...")
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept-Language": "en-US,en;q=0.9"
-    }
-
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Accept-Language": "en-US,en;q=0.9"}
     try:
-        log(" -> Trying Relay #1 (Uguu CDN)...")
         with open(file_path, "rb") as f:
             res = requests.post("https://uguu.se/upload", files={"files[]": f}, headers=headers, timeout=(15, 75)).json()
         if res.get("success") and res.get("files"):
-            url = res["files"][0]["url"]
-            log(f"[SUCCESS] Relay #1 URL ready: {url}")
-            return url
-    except Exception as e:
-        log(f" -> Relay #1 skipped ({e})")
-
+            return res["files"][0]["url"]
+    except Exception:
+        pass
     try:
-        log(" -> Trying Relay #2 (Catbox CDN)...")
         with open(file_path, "rb") as f:
             res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
         if res.status_code == 200 and res.text.strip().startswith("https://"):
-            url = res.text.strip()
-            log(f"[SUCCESS] Relay #2 URL ready: {url}")
-            return url
-    except Exception as e:
-        log(f" -> Relay #2 skipped ({e})")
-
-    try:
-        log(" -> Trying Relay #3 (Litterbox CDN)...")
-        with open(file_path, "rb") as f:
-            res = requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={"reqtype": "fileupload", "time": "1h"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
-        if res.status_code == 200 and res.text.strip().startswith("https://"):
-            url = res.text.strip()
-            log(f"[SUCCESS] Relay #3 URL ready: {url}")
-            return url
-    except Exception as e:
-        log(f" -> Relay #3 skipped ({e})")
-
-    log(" -> Trying Relay #4 (Tmpfiles CDN)...")
+            return res.text.strip()
+    except Exception:
+        pass
     with open(file_path, "rb") as f:
         response = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": f}, headers=headers, timeout=(15, 75)).json()
+    return response["data"]["url"].replace("tmpfiles.org/", "tmpfiles.org/dl/")
 
-    if "data" not in response or "url" not in response["data"]:
-        raise Exception(f"All 4 relays failed: {response}")
+def seed_first_comment(media_id, token, replied_comments):
+    comment_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}/comments"
+    try:
+        res = requests.post(comment_url, data={"message": random.choice(FIRST_COMMENT_TEMPLATES), "access_token": token}, timeout=(10, 20)).json()
+        if "id" in res:
+            append_to_set_file(REPLIED_COMMENTS_FILE, res["id"], replied_comments)
+            log(f"[AUTO-SEED] Posted first comment on Media {media_id}")
+    except Exception:
+        pass
 
-    direct_url = response["data"]["url"].replace("tmpfiles.org/", "tmpfiles.org/dl/")
-    log(f"[SUCCESS] Relay #4 URL ready: {direct_url}")
-    return direct_url
-
-# ==========================================
-# 7. META GRAPH API REEL PUBLISHER
-# ==========================================
-def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
-    log(f"[STEP 4/4] Sending 4K Reel to Meta Graph API for IG ID {ig_user_id}...")
+def publish_reel_to_instagram(ig_user_id, video_url, caption, token, replied_comments):
     container_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media"
-    payload = {
-        "media_type": "REELS",
-        "video_url": video_url,
-        "caption": caption,
-        "share_to_feed": "true",
-        "access_token": token
-    }
+    payload = {"media_type": "REELS", "video_url": video_url, "caption": caption, "share_to_feed": "true", "access_token": token}
     res = requests.post(container_url, data=payload, timeout=(10, 30)).json()
     if "id" not in res:
-        raise Exception(f"Container creation failed: {res}")
+        raise Exception(f"Container failed: {res}")
 
     creation_id = res["id"]
-    log(f"[INFO] Container ID {creation_id} created. Waiting for Meta 4K processing...")
     status_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{creation_id}"
-
-    for attempt in range(25):
+    for _ in range(25):
         status_res = requests.get(status_url, params={"fields": "status_code,status", "access_token": token}, timeout=(10, 20)).json()
         status_code = status_res.get("status_code")
-        log(f" -> Meta status check [{attempt+1}/25]: {status_code}")
-
         if status_code == "FINISHED":
             break
         elif status_code in ("ERROR", "EXPIRED"):
@@ -467,79 +315,111 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
 
     publish_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish"
     publish_res = requests.post(publish_url, data={"creation_id": creation_id, "access_token": token}, timeout=(10, 30)).json()
-
     if "id" not in publish_res:
-        raise Exception(f"Publish step failed: {publish_res}")
+        raise Exception(f"Publish failed: {publish_res}")
 
-    log(f"[SUCCESS] PUBLISHED LIVE TO INSTAGRAM! Media ID: {publish_res['id']}")
+    media_id = publish_res["id"]
+    log(f"[SUCCESS] PUBLISHED LIVE! Media ID: {media_id}")
+    seed_first_comment(media_id, token, replied_comments)
+
+def sweep_and_dm_commenters(all_accounts, replied_comments):
+    log("\n=== RUNNING AUTOMATED COMMENT-TO-DM SWEEP ACROSS FLEET ===")
+    dm_text = (
+        f"You're in ⚡ Here is your free access link to the ARC Operating System "
+        f"+ The First $100 Starter Kit:\n\n👉 {ARC_DIRECT_URL}\n\n"
+        f"(First 1,000 spots are free — lock in now before gates close)"
+    )
+    total_replied = 0
+    for acc in all_accounts:
+        ig_id, page_id, page_token, user_token = acc["ig_user_id"], acc["page_id"], acc["page_token"], acc["token"]
+        own_username = (acc.get("ig_username") or "").lower()
+        media_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_id}/media"
+        try:
+            res = requests.get(media_url, params={"fields": "id,comments.limit(25){id,text,username}", "limit": 6, "access_token": user_token}, timeout=(10, 20)).json()
+            for media in res.get("data", []):
+                for c in media.get("comments", {}).get("data", []):
+                    cid = str(c.get("id", ""))
+                    c_user = str(c.get("username", "")).lower()
+                    c_text = str(c.get("text", "")).strip()
+                    if not cid or cid in replied_comments:
+                        continue
+                    if (own_username and c_user == own_username) or "@arcbloodline30" in c_text.lower():
+                        append_to_set_file(REPLIED_COMMENTS_FILE, cid, replied_comments)
+                        continue
+
+                    dm_payload = {"recipient": {"comment_id": cid}, "message": {"text": dm_text}}
+                    dm_sent = False
+                    for endpoint_id, tok in [(ig_id, page_token), (page_id, page_token), (ig_id, user_token)]:
+                        if not endpoint_id:
+                            continue
+                        dm_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{endpoint_id}/messages"
+                        dm_res = requests.post(dm_url, params={"access_token": tok}, json=dm_payload, timeout=(10, 15)).json()
+                        if "message_id" in dm_res or "recipient_id" in dm_res:
+                            dm_sent = True
+                            log(f"[AUTO-DM SENT] Sent ARC link to @{c_user} on {acc['page_name']}")
+                            break
+
+                    reply_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{cid}/replies"
+                    pub_msg = random.choice(PUBLIC_REPLY_TEMPLATES) if dm_sent else "Tap @ARCBLOODLINE30 right now — free ARC Vault link is live in the bio ⚡"
+                    requests.post(reply_url, data={"message": pub_msg, "access_token": user_token}, timeout=(10, 15))
+                    append_to_set_file(REPLIED_COMMENTS_FILE, cid, replied_comments)
+                    total_replied += 1
+        except Exception as e:
+            log(f"[SWEEP SKIP] {acc['page_name']}: {e}")
+    log(f"=== AUTO-DM SWEEP COMPLETE: CONVERTED {total_replied} NEW COMMENTERS ===\n")
 
 # ==========================================
-# 8. MAIN ENGINE EXECUTION
+# 6. MAIN ANONYMOUS BRAND ENGINE EXECUTION
 # ==========================================
 def main():
-    current_utc_hour = time.gmtime().tm_hour
-    target_market = TIER1_SCHEDULE_MAP.get(
-        current_utc_hour,
-        "Global US/UK/Tier-1 High-Spending Buyer Window"
-    )
-    log("=== ARC 4K US/UK TIER-1 PUBLISHING ENGINE STARTED ===")
-    log(f"[TARGET WAVE] UTC Hour {current_utc_hour:02d}:00 -> {target_market}")
-
+    log("=== ARC ANONYMOUS BRAND KINETIC ENGINE STARTED ===")
     active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
     if not active_tokens:
         raise ValueError("FATAL: META_TOKEN_1 missing in GitHub Secrets!")
 
     font_path = ensure_custom_font()
-    posted_history = load_posted_history()
-    log(f"[INFO] Loaded {len(posted_history)} previously posted items from {HISTORY_FILE}.")
+    posted_history = load_set_file(HISTORY_FILE)
+    replied_comments = load_set_file(REPLIED_COMMENTS_FILE)
 
-    selected_video, used_url, filename_id = ingest_single_fresh_reel(posted_history)
-    if not selected_video:
-        log("[COMPLETE] All Reels in reel_links.txt and assets/ have already been posted!")
-        return
-
-    all_accounts = []
-    seen_ig_ids = set()
-    for idx, token in enumerate(active_tokens):
+    all_accounts, seen_ig_ids = [], set()
+    for token in active_tokens:
         try:
-            log(f"[INFO] Checking Meta Token #{idx+1} for Instagram accounts...")
-            accs = get_connected_instagram_accounts(token)
-            log(f"[INFO] Token #{idx+1}: Found {len(accs)} connected Instagram account(s).")
-            for a in accs:
+            for a in get_connected_instagram_accounts(token):
                 if a["ig_user_id"] not in seen_ig_ids:
                     seen_ig_ids.add(a["ig_user_id"])
                     all_accounts.append(a)
         except Exception as e:
-            log(f"[ERROR] Token #{idx+1} failed: {e}")
+            log(f"[ERROR] Token check failed: {e}")
 
     if not all_accounts:
-        raise RuntimeError("Zero Instagram Business accounts found on your tokens.")
+        raise RuntimeError("Zero Instagram Business accounts found.")
 
-    # Shuffle account posting order every wave so Meta never sees a fixed sequential pattern
-    random.shuffle(all_accounts)
+    sweep_and_dm_commenters(all_accounts, replied_comments)
 
-    if used_url:
-        mark_as_posted(used_url)
-        remove_link_from_queue(used_url)
-    if filename_id:
-        mark_as_posted(filename_id)
+    wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
+    caption_batch = generate_unique_caption_batch(len(wave_accounts))
 
-    caption_batch = generate_unique_caption_batch(len(all_accounts))
-
+    current_video = None
     success_count = 0
-    for index, acc in enumerate(all_accounts):
-        log(f"\n========================================")
-        log(f"ACCOUNT [{index+1}/{len(all_accounts)}]: {acc['page_name']} ({acc['ig_user_id']})")
-        log(f"========================================")
 
+    for index, acc in enumerate(wave_accounts):
+        if index % MAX_ACCOUNTS_PER_VIDEO == 0 or not current_video:
+            if current_video and os.path.exists(current_video):
+                os.remove(current_video)
+            new_vid = ingest_single_fresh_reel(posted_history)
+            if new_vid:
+                current_video = new_vid
+            elif not current_video:
+                log("[COMPLETE] B-roll source missing!")
+                break
+
+        log(f"\n--- NODE [{index+1}/{len(wave_accounts)}]: {acc['page_name']} ({acc['ig_user_id']}) ---")
         mutated_output = f"arc_4k_master_{index}.mp4"
-        caption = caption_batch[index]
-        log(f"[INFO] Assigned Caption: {caption}")
 
         try:
-            mutate_video_for_account(selected_video, mutated_output, font_path)
+            mutate_video_for_account(current_video, mutated_output, font_path)
             public_url = upload_for_meta_download(mutated_output)
-            publish_reel_to_instagram(acc["ig_user_id"], public_url, caption, acc["token"])
+            publish_reel_to_instagram(acc["ig_user_id"], public_url, caption_batch[index], acc["token"], replied_comments)
             success_count += 1
         except Exception as e:
             log(f"[ERROR] Failed on {acc['page_name']}: {e}")
@@ -547,16 +427,15 @@ def main():
             if os.path.exists(mutated_output):
                 os.remove(mutated_output)
 
-        if index < len(all_accounts) - 1:
-            jitter_seconds = random.randint(20, 60)
-            jitter_mins = round(jitter_seconds / 60, 1)
-            log(f"[COOLDOWN] Waiting {jitter_mins} minutes ({jitter_seconds}s) before next account...")
+        if index < len(wave_accounts) - 1:
+            jitter_seconds = random.randint(35, 75)
+            log(f"[COOLDOWN] Waiting {jitter_seconds}s before next node...")
             time.sleep(jitter_seconds)
 
-    if os.path.exists(selected_video):
-        os.remove(selected_video)
+    if current_video and os.path.exists(current_video):
+        os.remove(current_video)
 
-    log(f"\n=== RUN COMPLETE: PUBLISHED ON {success_count}/{len(all_accounts)} ACCOUNTS ===")
+    log(f"\n=== WAVE COMPLETE: {success_count}/{len(wave_accounts)} BRAND KINETIC REELS PUBLISHED ===")
 
 if __name__ == "__main__":
     main()
