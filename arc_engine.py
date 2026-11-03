@@ -13,7 +13,7 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 # ==========================================
-# 1. CONFIGURATION & CUSTOM SONG SETTINGS
+# 1. CONFIGURATION & DIRECT BIO-FUNNEL SETTINGS
 # ==========================================
 META_TOKENS = [
     os.getenv("META_TOKEN_1"),
@@ -21,127 +21,253 @@ META_TOKENS = [
 ]
 
 GRAPH_API_VERSION = "v20.0"
-ARC_DIRECT_URL = os.getenv("ARC_DIRECT_URL") or "https://whop.com/your-arc-link"
 
+# 23 accounts per wave x 6 daily waves (every 4h) = 138 Reels/day
 ACCOUNTS_PER_WAVE = 23
 MAX_ACCOUNTS_PER_VIDEO = 1
 
 LINKS_FILE = "reel_links.txt"
 HISTORY_FILE = "posted_history.txt"
 CURSOR_FILE = "account_cursor.txt"
-REPLIED_COMMENTS_FILE = "replied_comments.txt"
 ASSETS_DIR = "assets"
 CUSTOM_FONT_PATH = "Montserrat-ExtraBold.ttf"
 
-# Cinematic B-roll background loops
-CINEMATIC_BROLL_SOURCES = [
+# =====================================================================
+# PASTE YOUR SPECIFIC SONG / PHONK / BEAT LINKS HERE (YouTube or Direct MP3/MP4):
+# =====================================================================
+CUSTOM_SONG_LIBRARY = [
+    "https://www.youtube.com/watch?v=2S24-y0Ij3Y",  # <-- Replace with your Song #1 URL
+    "https://www.youtube.com/watch?v=5qap5aO4i9A",  # <-- Replace with your Song #2 URL
+]
+
+# High-Status Luxury / Aesthetic B-Roll Accounts (Auto-harvested if reel_links.txt runs low)
+LUXURY_BROLL_HANDLES = [
+    "billionaires.club",
+    "wealth",
+    "luxury.world.life",
+    "classy.lifestyle",
+    "supercarblondie",
+    "millionaire.mindset"
+]
+
+# Fallback 4K Luxury / Cityscape Loops if Instagram scraper is rate-limited
+CINEMATIC_FALLBACK_URLS = [
     "https://www.youtube.com/watch?v=LXb3EKWsInQ",
     "https://www.youtube.com/watch?v=3JZ_D3ELwOQ",
     "https://www.youtube.com/watch?v=ScMzIvxBSi4"
 ]
 
-# =====================================================================
-# PASTE YOUR SPECIFIC SONG / BEAT YOUTUBE LINKS HERE:
-# =====================================================================
-CUSTOM_SONG_LIBRARY = [
-    "https://www.youtube.com/watch?v=2S24-y0Ij3Y", # Replace with your 1st specific track URL
-    "https://www.youtube.com/watch?v=5qap5aO4i9A"  # Replace with your 2nd specific track URL
+# 100% Direct Bio-Funnel Captions (@ARCBLOODLINE30 placed first for instant 1-tap conversion)
+ARC_BIO_CAPTIONS = [
+    "@ARCBLOODLINE30 Free access to the ARC Vault is live in the bio.",
+    "@ARCBLOODLINE30 First 1,000 terminal spots are 100% free. Tap @ARCBLOODLINE30 to lock yours in.",
+    "@ARCBLOODLINE30 Stop watching others cash out. Enter the ARC Operating System via @ARCBLOODLINE30 bio.",
+    "@ARCBLOODLINE30 The blueprint is live. Tap @ARCBLOODLINE30 and claim your free spot before gates lock.",
+    "@ARCBLOODLINE30 Built for execution, not spectators. Tap @ARCBLOODLINE30 for instant Vault entry.",
+    "@ARCBLOODLINE30 Escape the 9-5 cage. Free ARC terminal invite is waiting inside @ARCBLOODLINE30 bio.",
+    "@ARCBLOODLINE30 Gates close permanently at member #1,000. Tap @ARCBLOODLINE30 right now.",
+    "@ARCBLOODLINE30 Your first $100000 digital system is unlocked inside @ARCBLOODLINE30. Tap the bio link."
 ]
 
-ARC_BASE_CAPTIONS = [
-    'Comment "ARC" for free Vault access or tap @ARCBLOODLINE30',
-    '@ARCBLOODLINE30 Comment "ARC" and I\'ll DM you the link.',
-    'Comment "ARC" to unlock the $100 Starter Kit -> @ARCBLOODLINE30',
-    '@ARCBLOODLINE30 Drop "ARC" below for instant terminal entry.',
-    'First 1,000 spots FREE. Comment "ARC" or tap @ARCBLOODLINE30',
-    '@ARCBLOODLINE30 Comment "ARC" below to escape the 9-5 cage.',
-    'Weak minds scroll. Winners comment "ARC" -> @ARCBLOODLINE30',
-    '@ARCBLOODLINE30 Reply "ARC" below for free Vault access.',
-    'Comment "ARC" for the private blueprint or tap @ARCBLOODLINE30',
-    '@ARCBLOODLINE30 Comment "ARC" and check your DMs immediately.'
-]
-
-ARC_VALUE_HOOKS = [
-    ("THE 9-5 MATRIX IS DESIGNED", "TO KEEP YOU BROKE FOR 40 YEARS."),
-    ("BUILDING DIGITAL ASSETS", "IS THE ONLY WAY OUT IN 2026."),
-    ("STOP CONSUMING BRAINROT.", "START PRINTING CASHFLOW INSIDE ARC."),
-    ("YOU DON'T NEED LUCK.", "YOU NEED A SYSTEM THAT PRINTS."),
-    ("THE FIRST 1,000 TERMINAL SPOTS", "ARE 100% FREE INSIDE ARC.")
-]
-
-FIRST_COMMENT_TEMPLATES = [
-    'Comment "ARC" below and I\'ll DM you the free ARC Vault + $100 Starter Kit link directly ⚡ (or tap @ARCBLOODLINE30)',
-    'Drop "ARC" in the replies for instant free access in your DMs 🔓 Backup link in @ARCBLOODLINE30 bio.',
-    'First 1,000 spots are 100% free — reply "ARC" right here and check your DMs ⚡ (@ARCBLOODLINE30)'
-]
-
-PUBLIC_REPLY_TEMPLATES = [
-    "Just sent the free ARC Vault link straight to your DMs ⚡ Check your message requests!",
-    "Check your DMs right now — sent you the direct ARC invite + Starter Kit 🔓",
-    "Sent! Check your inbox/requests for the ARC terminal link (or tap @ARCBLOODLINE30) ⚡"
+# 3-Stage Conversion Copywriting (Hook -> Agitation/Proof -> Bio Action)
+ARC_CONVERSION_SEQUENCES = [
+    ("STILL TRADING HOURS FOR PENNIES", "WHILE AUTOMATED SYSTEMS PRINT?", "UNLOCK THE ARC OPERATING SYSTEM", "FREE $100 STARTER KIT IN BIO"),
+    ("99% SCROLL PAST WEALTH SYSTEMS", "THE 1% BUILD DIGITAL CASHFLOW.", "INSIDE THE PRIVATE ARC VAULT:", "STEP-BY-STEP EXECUTION BLUEPRINTS"),
+    ("THE 9-5 MATRIX WAS DESIGNED", "TO KEEP YOU BROKE FOR 40 YEARS.", "WE BUILT THE EXIT PROTOCOL.", "FIRST 1,000 SPOTS ARE 100% FREE"),
+    ("YOU DON'T HAVE A MONEY PROBLEM", "YOU HAVE A SYSTEM PROBLEM.", "PLUG INTO ARC TERMINAL TODAY", "ZERO COST UNTIL MEMBER #1,000"),
+    ("STOP CONSUMING CHEAP DOPAMINE", "START BUILDING REAL LEVERAGE.", "CLAIM YOUR FREE ARC VAULT PASS", "BEFORE THE GATES LOCK FOREVER")
 ]
 
 def generate_unique_caption_batch(count):
-    pool = list(ARC_BASE_CAPTIONS)
+    pool = list(ARC_BIO_CAPTIONS)
     random.shuffle(pool)
-    micro_tags = ["", " ↓", " ⚡", " 🗝️", " 🔓"]
+    micro_tags = ["", " ⚡", " 🔓", " ↓", " 🗝️"]
     return [f"{pool[i % len(pool)]}{random.choice(micro_tags)}".strip() for i in range(count)]
 
 # ==========================================
-# 2. AUTO-DOWNLOAD ASSETS & SPECIFIC SONGS
+# 2. QUEUE & LEDGER MANAGERS
 # ==========================================
-def download_asset(url, out_template):
-    ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "outtmpl": out_template,
-        "merge_output_format": "mp4",
-        "quiet": True,
-        "no_warnings": True,
-        "socket_timeout": 20
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            return info.get("id", "unknown")
-    except Exception:
-        return None
+def load_set_file(filepath):
+    if not os.path.exists(filepath):
+        return set()
+    with open(filepath, "r", encoding="utf-8") as f:
+        return set(line.strip() for line in f if line.strip())
+
+def append_to_set_file(filepath, identifier, memory_set):
+    if not identifier:
+        return
+    clean = str(identifier).strip()
+    if clean not in memory_set:
+        memory_set.add(clean)
+        with open(filepath, "a", encoding="utf-8") as f:
+            f.write(f"{clean}\n")
+
+def remove_link_from_queue(used_url):
+    if not used_url or not os.path.exists(LINKS_FILE):
+        return
+    with open(LINKS_FILE, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    with open(LINKS_FILE, "w", encoding="utf-8") as f:
+        for line in lines:
+            if line.strip() != used_url.strip():
+                f.write(line)
+
+def select_round_robin_accounts(all_accounts, batch_size):
+    sorted_accs = sorted(all_accounts, key=lambda x: str(x["ig_user_id"]))
+    total = len(sorted_accs)
+    start_idx = 0
+
+    if os.path.exists(CURSOR_FILE):
+        try:
+            with open(CURSOR_FILE, "r", encoding="utf-8") as f:
+                start_idx = int(f.read().strip()) % total
+        except Exception:
+            start_idx = 0
+
+    selected = [sorted_accs[(start_idx + i) % total] for i in range(min(batch_size, total))]
+    next_cursor = (start_idx + len(selected)) % total
+
+    with open(CURSOR_FILE, "w", encoding="utf-8") as f:
+        f.write(str(next_cursor))
+
+    log(f"[ROUND-ROBIN] Cursor {start_idx} -> {next_cursor} (Selected {len(selected)}/{total} accounts).")
+    return selected
+
+# ==========================================
+# 3. HIGH-QUALITY ASSET & CUSTOM SONG ENGINE
+# ==========================================
+def auto_replenish_broll_links(posted_history):
+    current_links = []
+    if os.path.exists(LINKS_FILE):
+        with open(LINKS_FILE, "r", encoding="utf-8") as f:
+            current_links = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+    unposted = [u for u in current_links if u not in posted_history]
+    if len(unposted) >= 25:
+        return
+
+    log(f"[HARVESTER] Queue low ({len(unposted)} links). Harvesting HD luxury B-roll...")
+    new_urls = []
+    for handle in random.sample(LUXURY_BROLL_HANDLES, min(4, len(LUXURY_BROLL_HANDLES))):
+        profile_url = f"https://www.instagram.com/{handle}/reels/"
+        ydl_opts = {"extract_flat": True, "quiet": True, "no_warnings": True, "socket_timeout": 15, "playlistend": 12}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                res = ydl.extract_info(profile_url, download=False)
+                for entry in (res or {}).get("entries", []):
+                    if entry:
+                        u = entry.get("url") or f"https://www.instagram.com/reel/{entry.get('id')}/"
+                        if not u.startswith("http"):
+                            u = f"https://www.instagram.com/reel/{entry.get('id')}/"
+                        if u not in current_links and u not in posted_history:
+                            new_urls.append(u)
+        except Exception:
+            pass
+
+    if not new_urls and not unposted:
+        new_urls = [u for u in CINEMATIC_FALLBACK_URLS if u not in posted_history] or list(CINEMATIC_FALLBACK_URLS)
+
+    if new_urls:
+        with open(LINKS_FILE, "a", encoding="utf-8") as f:
+            for u in new_urls:
+                f.write(f"{u}\n")
+        log(f"[HARVESTER] Added {len(new_urls)} fresh luxury B-roll sources.")
 
 def get_random_custom_song():
     os.makedirs(ASSETS_DIR, exist_ok=True)
-    if not CUSTOM_SONG_LIBRARY:
+    valid_songs = [s.strip() for s in CUSTOM_SONG_LIBRARY if s and s.strip()]
+    if not valid_songs:
         return None
-    song_url = random.choice(CUSTOM_SONG_LIBRARY)
+
+    song_url = random.choice(valid_songs)
     safe_id = abs(hash(song_url)) % (10 ** 8)
-    out_path = os.path.join(ASSETS_DIR, f"song_{safe_id}.mp4")
-    
-    if not os.path.exists(out_path):
-        log(f"[AUDIO] Downloading custom track: {song_url}")
-        download_asset(song_url, os.path.join(ASSETS_DIR, f"song_{safe_id}.%(ext)s"))
-        
-    return out_path if os.path.exists(out_path) else None
+    out_path = os.path.join(ASSETS_DIR, f"song_{safe_id}.m4a")
+
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 20000:
+        return out_path
+
+    log(f"[SONG ENGINE] Downloading custom track: {song_url}")
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "outtmpl": out_path,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 25
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(song_url, download=True)
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 20000:
+            return out_path
+    except Exception as e:
+        log(f"[WARNING] Custom song download issue ({song_url}): {e}")
+    return None
+
+def check_video_resolution(video_path):
+    try:
+        cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path
+        ]
+        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        dims = res.stdout.decode("utf-8").strip().split("x")
+        w, h = int(dims[0]), int(dims[1])
+        return max(w, h) >= 720
+    except Exception:
+        return True
 
 def ingest_single_fresh_reel(posted_history):
     os.makedirs(ASSETS_DIR, exist_ok=True)
-    if not os.path.exists(LINKS_FILE) or os.path.getsize(LINKS_FILE) < 10:
-        with open(LINKS_FILE, "w", encoding="utf-8") as f:
-            for src in CINEMATIC_BROLL_SOURCES:
-                f.write(f"{src}\n")
+    auto_replenish_broll_links(posted_history)
+
+    if not os.path.exists(LINKS_FILE):
+        return None
 
     with open(LINKS_FILE, "r", encoding="utf-8") as f:
         all_urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-    for target_url in [u for u in all_urls if u not in posted_history]:
-        log(f"[STEP 1/4] Downloading cinematic B-roll background: {target_url}")
-        vid_id = download_asset(target_url, os.path.join(ASSETS_DIR, "cinematic_%(id)s.%(ext)s"))
-        if vid_id:
-            full_path = os.path.join(ASSETS_DIR, f"cinematic_{vid_id}.mp4")
-            if os.path.exists(full_path):
-                append_to_set_file(HISTORY_FILE, target_url, posted_history)
-                return full_path
+    candidates = [u for u in all_urls if u not in posted_history] or list(CINEMATIC_FALLBACK_URLS)
+
+    for target_url in candidates:
+        log(f"[STEP 1/4] Ingesting HD B-roll source: {target_url}")
+        ydl_opts = {
+            "format": "bestvideo[height>=720][ext=mp4]/bestvideo[ext=mp4]/best[ext=mp4]/best",
+            "outtmpl": os.path.join(ASSETS_DIR, "broll_%(id)s.%(ext)s"),
+            "merge_output_format": "mp4",
+            "quiet": True,
+            "no_warnings": True,
+            "socket_timeout": 25,
+            "playlist_items": "1"
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(target_url, download=True)
+                if "entries" in info and info["entries"]:
+                    info = info["entries"][0]
+                vid_id = info.get("id", "unknown")
+                full_path = os.path.join(ASSETS_DIR, f"broll_{vid_id}.mp4")
+
+                if os.path.exists(full_path):
+                    if not check_video_resolution(full_path):
+                        log(f"[QUALITY GATE] Rejected low-resolution clip ({vid_id}). Skipping...")
+                        os.remove(full_path)
+                        append_to_set_file(HISTORY_FILE, target_url, posted_history)
+                        remove_link_from_queue(target_url)
+                        continue
+
+                    append_to_set_file(HISTORY_FILE, target_url, posted_history)
+                    remove_link_from_queue(target_url)
+                    log(f"[SUCCESS] HD Source verified: broll_{vid_id}.mp4")
+                    return full_path
+        except Exception as e:
+            log(f"[WARNING] Source skipped ({target_url}): {e}")
+            append_to_set_file(HISTORY_FILE, target_url, posted_history)
+            remove_link_from_queue(target_url)
+
     return None
 
 # ==========================================
-# 3. DISCOVER IG ACCOUNTS & QUEUE MANAGERS
+# 4. INSTAGRAM GRAPH API ACCOUNT DISCOVERY
 # ==========================================
 def get_connected_instagram_accounts(token):
     url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/accounts"
@@ -168,44 +294,8 @@ def get_connected_instagram_accounts(token):
             })
     return accounts
 
-def select_round_robin_accounts(all_accounts, batch_size):
-    sorted_accs = sorted(all_accounts, key=lambda x: str(x["ig_user_id"]))
-    total = len(sorted_accs)
-    start_idx = 0
-
-    if os.path.exists(CURSOR_FILE):
-        try:
-            with open(CURSOR_FILE, "r", encoding="utf-8") as f:
-                start_idx = int(f.read().strip()) % total
-        except Exception:
-            start_idx = 0
-
-    selected = [sorted_accs[(start_idx + i) % total] for i in range(min(batch_size, total))]
-    next_cursor = (start_idx + len(selected)) % total
-
-    with open(CURSOR_FILE, "w", encoding="utf-8") as f:
-        f.write(str(next_cursor))
-
-    log(f"[ROUND-ROBIN] Cursor {start_idx} -> {next_cursor} (Selected {len(selected)}/{total} accounts).")
-    return selected
-
-def load_set_file(filepath):
-    if not os.path.exists(filepath):
-        return set()
-    with open(filepath, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f if line.strip())
-
-def append_to_set_file(filepath, identifier, memory_set):
-    if not identifier:
-        return
-    clean = str(identifier).strip()
-    if clean not in memory_set:
-        memory_set.add(clean)
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(f"{clean}\n")
-
 # ==========================================
-# 4. CUSTOM FONT & SONG-MIXED KINETIC MASTERING
+# 5. DARK-LUXURY 4K + CUSTOM SONG MASTERING
 # ==========================================
 def ensure_custom_font():
     if os.path.exists(CUSTOM_FONT_PATH) and os.path.getsize(CUSTOM_FONT_PATH) > 10000:
@@ -221,39 +311,46 @@ def ensure_custom_font():
         pass
     return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-def get_video_duration(input_path):
+def get_media_duration(input_path):
     try:
         cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", input_path]
         res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
         return float(res.stdout.decode("utf-8").strip())
     except Exception:
-        return 12.0
+        return 10.0
 
 def mutate_video_for_account(input_path, output_path, font_path):
-    log(f"[STEP 2/4] Custom Song-Injected Kinetic Mastering ({os.path.basename(input_path)})...")
-    trim_start = round(random.uniform(0.12, 1.5), 3)
+    log(f"[STEP 2/4] Dark-Luxury 4K + Custom Song Mastering ({os.path.basename(input_path)})...")
+
+    raw_dur = get_media_duration(input_path)
+    target_dur = round(random.uniform(8.8, 10.4), 2)
+    max_start = max(0.2, raw_dur - target_dur - 0.5)
+    trim_start = round(random.uniform(0.15, min(4.0, max_start)), 3) if raw_dur > target_dur + 1.0 else 0.1
+
+    final_duration = min(target_dur, max(6.5, raw_dur - trim_start))
+    phase2_start = round(final_duration * 0.36, 2)
+    cta_start = round(final_duration - 2.5, 2)
+
     crop_keep = round(random.uniform(0.975, 0.992), 4)
     x_jitter = random.randint(2, 6)
     y_jitter = random.randint(2, 6)
-    angle_deg = random.choice([-0.35, -0.25, 0.25, 0.35])
+    angle_deg = random.choice([-0.3, -0.2, 0.2, 0.3])
     flip_filter = "hflip," if random.random() < 0.5 else ""
     noise_level = random.randint(2, 3)
 
-    b_shift = round(random.uniform(-0.008, 0.008), 4)
-    c_shift = round(random.uniform(0.992, 1.012), 4)
-    s_shift = round(random.uniform(0.990, 1.015), 4)
-    speed = round(random.uniform(0.985, 1.025), 4)
+    # Dark-Luxury Cinema Color Grade (Rich contrast, slightly darkened exposure so gold/white text pops)
+    b_shift = round(random.uniform(-0.045, -0.025), 4)
+    c_shift = round(random.uniform(1.06, 1.10), 4)
+    s_shift = round(random.uniform(0.86, 0.94), 4)
+    speed = round(random.uniform(0.985, 1.022), 4)
     epoch_jitter = int(time.time()) - random.randint(300, 172800)
 
-    raw_duration = get_video_duration(input_path)
-    final_duration = max(5.0, (raw_duration - trim_start) / speed)
-    cta_start = round(max(2.0, final_duration - 2.5), 2)
+    h1, h2, p1, p2 = random.choice(ARC_CONVERSION_SEQUENCES)
+    cta1 = "TAP @ARCBLOODLINE30 IN BIO"
+    cta2 = "FREE VAULT + $100 STARTER KIT"
 
-    hook_top, hook_bottom = random.choice(ARC_VALUE_HOOKS)
-    cta_line1 = "COMMENT 'ARC' FOR FREE ACCESS"
-    cta_line2 = "OR TAP @ARCBLOODLINE30 IN BIO"
     wm_x_offset = random.randint(-6, 6)
-    wm_y = 340 + random.randint(-8, 8)
+    wm_y = 330 + random.randint(-8, 8)
 
     vf_chain = (
         f"setpts=PTS/{speed},{flip_filter}"
@@ -262,9 +359,209 @@ def mutate_video_for_account(input_path, output_path, font_path):
         f"scale=2160:3840:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,"
         f"crop=2160:3840,"
         f"eq=brightness={b_shift}:contrast={c_shift}:saturation={s_shift},"
-        f"noise=alls={noise_level}:allf=t,unsharp=5:5:0.34:5:5:0.0,"
+        f"noise=alls={noise_level}:allf=t,unsharp=5:5:0.45:5:5:0.0,"
+        # Top Brand Watermark
         f"drawtext=fontfile={font_path}:text='ARC':expansion=none:"
-        f"fontcolor=white@0.35:fontsize=130:shadowcolor=black@0.3:shadowx=3:shadowy=3:"
+        f"fontcolor=white@0.38:fontsize=125:shadowcolor=black@0.4:shadowx=3:shadowy=3:"
         f"x=(w-text_w)/2+{wm_x_offset}:y={wm_y},"
-        f"drawtext=fontfile={font_path}:text='{hook_top}':expansion=none:"
-        f"fontcolor=0xFFD700:fontsize=76:shadowcolor=black@0.9:
+        # Phase 1: Pattern Interrupt Hook (0s -> phase2_start)
+        f"drawtext=fontfile={font_path}:text='{h1}':expansion=none:"
+        f"fontcolor=0xFFD700:fontsize=74:shadowcolor=black@0.95:shadowx=4:shadowy=4:"
+        f"box=1:boxcolor=black@0.86:boxborderw=26:"
+        f"x=(w-text_w)/2:y=(h/2)-150:enable='lt(t,{phase2_start})',"
+        f"drawtext=fontfile={font_path}:text='{h2}':expansion=none:"
+        f"fontcolor=white:fontsize=68:shadowcolor=black@0.95:shadowx=4:shadowy=4:"
+        f"box=1:boxcolor=black@0.86:boxborderw=26:"
+        f"x=(w-text_w)/2:y=(h/2)-30:enable='lt(t,{phase2_start})',"
+        # Phase 2: High-Status Value Proof (phase2_start -> cta_start)
+        f"drawtext=fontfile={font_path}:text='{p1}':expansion=none:"
+        f"fontcolor=0xFFD700:fontsize=74:shadowcolor=black@0.95:shadowx=4:shadowy=4:"
+        f"box=1:boxcolor=black@0.86:boxborderw=26:"
+        f"x=(w-text_w)/2:y=(h/2)-150:enable='between(t,{phase2_start},{cta_start})',"
+        f"drawtext=fontfile={font_path}:text='{p2}':expansion=none:"
+        f"fontcolor=white:fontsize=68:shadowcolor=black@0.95:shadowx=4:shadowy=4:"
+        f"box=1:boxcolor=black@0.86:boxborderw=26:"
+        f"x=(w-text_w)/2:y=(h/2)-30:enable='between(t,{phase2_start},{cta_start})',"
+        # Phase 3: Direct Bio-Funnel End-Card (cta_start -> end)
+        f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.90:t=fill:enable='gte(t,{cta_start})',"
+        f"drawtext=fontfile={font_path}:text='{cta1}':expansion=none:"
+        f"fontcolor=0xFFD700:fontsize=82:shadowcolor=black@0.95:shadowx=4:shadowy=4:"
+        f"x=(w-text_w)/2:y=(h/2)-95:enable='gte(t,{cta_start})',"
+        f"drawtext=fontfile={font_path}:text='{cta2}':expansion=none:"
+        f"fontcolor=white:fontsize=68:box=1:boxcolor=black@0.92:boxborderw=32:"
+        f"x=(w-text_w)/2:y=(h/2)+35:enable='gte(t,{cta_start})'"
+    )
+
+    custom_song = get_random_custom_song()
+    crf_val = str(random.choice([19, 20]))
+
+    if custom_song and os.path.exists(custom_song):
+        song_dur = get_media_duration(custom_song)
+        song_start = round(random.uniform(5.0, max(6.0, song_dur - final_duration - 2.0)), 2) if song_dur > final_duration + 8.0 else 0.0
+        pitch_shift = round(random.uniform(0.988, 1.015), 4)
+        fade_out_st = round(max(1.0, final_duration - 1.2), 2)
+
+        af_chain = (
+            f"asetrate=48000*{pitch_shift},aresample=48000,"
+            f"volume=0.85,afade=t=in:st=0:d=0.6,afade=t=out:st={fade_out_st}:d=1.1"
+        )
+
+        cmd = [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
+            "-ss", str(song_start), "-t", str(final_duration), "-i", custom_song,
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-vf", vf_chain, "-af", af_chain,
+            "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
+            "-crf", crf_val, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "-shortest", "-map_metadata", "-1", "-metadata", f"creation_time={epoch_jitter}",
+            output_path
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
+            "-vf", vf_chain,
+            "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
+            "-crf", crf_val, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            "-an", "-map_metadata", "-1", "-metadata", f"creation_time={epoch_jitter}",
+            output_path
+        ]
+
+    result = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
+    if result.returncode != 0:
+        raise Exception(f"FFmpeg failed: {result.stderr.decode('utf-8', errors='ignore')}")
+    return output_path
+
+# ==========================================
+# 6. RELAY UPLOAD & CLEAN GRAPH API PUBLISH
+# ==========================================
+def upload_for_meta_download(file_path):
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Accept-Language": "en-US,en;q=0.9"}
+    try:
+        with open(file_path, "rb") as f:
+            res = requests.post("https://uguu.se/upload", files={"files[]": f}, headers=headers, timeout=(15, 75)).json()
+        if res.get("success") and res.get("files"):
+            return res["files"][0]["url"]
+    except Exception:
+        pass
+    try:
+        with open(file_path, "rb") as f:
+            res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
+        if res.status_code == 200 and res.text.strip().startswith("https://"):
+            return res.text.strip()
+    except Exception:
+        pass
+    try:
+        with open(file_path, "rb") as f:
+            res = requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={"reqtype": "fileupload", "time": "1h"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
+        if res.status_code == 200 and res.text.strip().startswith("https://"):
+            return res.text.strip()
+    except Exception:
+        pass
+    with open(file_path, "rb") as f:
+        response = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": f}, headers=headers, timeout=(15, 75)).json()
+    return response["data"]["url"].replace("tmpfiles.org/", "tmpfiles.org/dl/")
+
+def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
+    container_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media"
+    payload = {
+        "media_type": "REELS",
+        "video_url": video_url,
+        "caption": caption,
+        "share_to_feed": "true",
+        "access_token": token
+    }
+    res = requests.post(container_url, data=payload, timeout=(10, 30)).json()
+    if "id" not in res:
+        raise Exception(f"Container failed: {res}")
+
+    creation_id = res["id"]
+    status_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{creation_id}"
+    for _ in range(25):
+        status_res = requests.get(status_url, params={"fields": "status_code,status", "access_token": token}, timeout=(10, 20)).json()
+        status_code = status_res.get("status_code")
+        if status_code == "FINISHED":
+            break
+        elif status_code in ("ERROR", "EXPIRED"):
+            raise Exception(f"Meta rejected video: {status_res}")
+        time.sleep(15)
+    else:
+        raise Exception("Meta video processing timed out.")
+
+    publish_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish"
+    publish_res = requests.post(publish_url, data={"creation_id": creation_id, "access_token": token}, timeout=(10, 30)).json()
+    if "id" not in publish_res:
+        raise Exception(f"Publish failed: {publish_res}")
+
+    log(f"[SUCCESS] PUBLISHED LIVE! Media ID: {publish_res['id']}")
+
+# ==========================================
+# 7. MAIN EXECUTION
+# ==========================================
+def main():
+    log("=== ARC PURE BIO-FUNNEL & CUSTOM SONG ENGINE STARTED ===")
+    active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
+    if not active_tokens:
+        raise ValueError("FATAL: META_TOKEN_1 missing in GitHub Secrets!")
+
+    font_path = ensure_custom_font()
+    posted_history = load_set_file(HISTORY_FILE)
+
+    all_accounts, seen_ig_ids = [], set()
+    for token in active_tokens:
+        try:
+            for a in get_connected_instagram_accounts(token):
+                if a["ig_user_id"] not in seen_ig_ids:
+                    seen_ig_ids.add(a["ig_user_id"])
+                    all_accounts.append(a)
+        except Exception as e:
+            log(f"[ERROR] Token check failed: {e}")
+
+    if not all_accounts:
+        raise RuntimeError("Zero Instagram Business accounts found.")
+
+    wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
+    caption_batch = generate_unique_caption_batch(len(wave_accounts))
+
+    current_video = None
+    success_count = 0
+
+    for index, acc in enumerate(wave_accounts):
+        if index % MAX_ACCOUNTS_PER_VIDEO == 0 or not current_video:
+            if current_video and os.path.exists(current_video):
+                os.remove(current_video)
+            new_vid = ingest_single_fresh_reel(posted_history)
+            if new_vid:
+                current_video = new_vid
+            elif not current_video:
+                log("[COMPLETE] No fresh links left in queue!")
+                break
+
+        log(f"\n--- NODE [{index+1}/{len(wave_accounts)}]: {acc['page_name']} ({acc['ig_user_id']}) ---")
+        mutated_output = f"arc_4k_master_{index}.mp4"
+
+        try:
+            mutate_video_for_account(current_video, mutated_output, font_path)
+            public_url = upload_for_meta_download(mutated_output)
+            publish_reel_to_instagram(acc["ig_user_id"], public_url, caption_batch[index], acc["token"])
+            success_count += 1
+        except Exception as e:
+            log(f"[ERROR] Failed on {acc['page_name']}: {e}")
+        finally:
+            if os.path.exists(mutated_output):
+                os.remove(mutated_output)
+
+        if index < len(wave_accounts) - 1:
+            jitter_seconds = random.randint(35, 75)
+            log(f"[COOLDOWN] Waiting {jitter_seconds}s before next node...")
+            time.sleep(jitter_seconds)
+
+    if current_video and os.path.exists(current_video):
+        os.remove(current_video)
+
+    log(f"\n=== WAVE COMPLETE: {success_count}/{len(wave_accounts)} HIGH-CONVERTING REELS PUBLISHED ===")
+
+if __name__ == "__main__":
+    main()
