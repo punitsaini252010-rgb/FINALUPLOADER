@@ -83,26 +83,33 @@ BROWSER_HEADERS = {
 }
 
 # ==========================================
-# 2. COHESIVE PSYCHOLOGICAL COPY & CAPTIONS (PURE ARC — ZERO "$100" MENTIONS)
+# 2. COHESIVE PSYCHOLOGICAL COPY & CAPTIONS
 # ==========================================
-# Format: (Upper-Middle 1-2 Word Hook [First 70%], Center Line 1 [Last 30%], Center Line 2 [Last 30%])
+# Permanent Signature Ending (Last 30% of every Reel across all 23 accounts) in stylized all-caps font
+ARC_FINAL_LINE_1 = "ＥＳＣＡＰＥ ＴＨＥ ＲＡＣＥ ＡＮＤ ＢＥＣＯＭＥ ＳＵＣＣＥＳＳＦＵＬ, ＣＯＭＥ ＪＯＩℕ ＡＲＣ"
+ARC_FINAL_LINE_2 = "ＷＥＡＬＴＨ • ＰＯＷＥＲ • ＦＲＥＥＤＯＭ • ＠ＡＲＣＢＬＯＯＤＬＩＮＥ３０"
+
+ARC_TOP_HOOKS = [
+    "SALARIES ARE BRIBES  •  ＡＲＣ",
+    "BROKE MEN SCROLL  •  ＡＲＣ",
+    "OBEDIENCE IS EXPENSIVE  •  ＡＲＣ",
+    "HARD WORK LIES  •  ＡＲＣ",
+    "STOP RENTING LIFE  •  ＡＲＣ",
+    "COMFORT KILLS EMPIRES  •  ＡＲＣ",
+    "WEAK MEN WAIT  •  ＡＲＣ",
+    "MONEY OBEYS LEVERAGE  •  ＡＲＣ",
+    "OWN THE MACHINE  •  ＡＲＣ",
+    "THE 9-5 CAGE  •  ＡＲＣ",
+    "BUILT FOR THE 1%  •  ＡＲＣ",
+    "ESCAPE THE MATRIX  •  ＡＲＣ",
+    "YOUR SALARY IS A TAX  •  ＡＲＣ",
+    "STAY POOR OR BUILD  •  ＡＲＣ",
+    "COMFORT IS A TRAP  •  ＡＲＣ",
+    "MASTERS OR PAWNS  •  ＡＲＣ"
+]
+
 ARC_UNIFIED_MESSAGES = [
-    ("ARC.", "WEALTH IS QUIET. POWER IS ORGANIZED.", "THE GATES ARE OPEN  •  @ARCBLOODLINE30"),
-    ("THE EXIT.", "MOST OBEY THE SYSTEM.", "THE ELITE BUILD OUTSIDE IT  •  @ARCBLOODLINE30"),
-    ("CONTROL.", "EITHER YOU OWN THE MACHINE", "OR YOU WORK FOR IT  •  @ARCBLOODLINE30"),
-    ("REALITY.", "COMFORT IS A MODERN CAGE.", "EXECUTION IS THE ONLY WAY OUT  •  @ARCBLOODLINE30"),
-    ("BLOODLINE.", "A DIFFERENT STANDARD OF MEN.", "STEP INSIDE THE CIRCLE  •  @ARCBLOODLINE30"),
-    ("LEVERAGE.", "HARD WORK PAYS BILLS.", "SYSTEMS BUILD DYNASTIES  •  @ARCBLOODLINE30"),
-    ("AWAKE.", "THEY TRAINED YOU TO CONSUME.", "WE BUILT ARC TO RULE  •  @ARCBLOODLINE30"),
-    ("ASCEND.", "AVERAGE IS A DAILY CHOICE.", "ACCESS THE BLUEPRINT  •  @ARCBLOODLINE30"),
-    ("DOMINION.", "MONEY FOLLOWS AUTHORITY.", "YOU KNOW WHERE TO LOOK  •  @ARCBLOODLINE30"),
-    ("SILENCE.", "NO NOISE. JUST POWER.", "ENTER THE TERMINAL  •  @ARCBLOODLINE30"),
-    ("THE CODE.", "99% WATCH FROM THE SIDELINES.", "THE 1% MOVE IN SILENCE  •  @ARCBLOODLINE30"),
-    ("SOVEREIGN.", "NOBODY IS COMING TO SAVE YOU.", "BUILD YOUR OWN EMPIRE  •  @ARCBLOODLINE30"),
-    ("ORDER.", "CHAOS REWARDS THE PREPARED.", "POSITION YOURSELF  •  @ARCBLOODLINE30"),
-    ("DYNASTY.", "WE DO NOT COMPETE.", "WE DICTATE THE TERMS  •  @ARCBLOODLINE30"),
-    ("FOCUS.", "DISTRACTION IS A TAX ON THE WEAK.", "LOCK IN  •  @ARCBLOODLINE30"),
-    ("ARCHITECT.", "STOP RENTING YOUR EXISTENCE.", "OWN THE INFRASTRUCTURE  •  @ARCBLOODLINE30")
+    (hook, ARC_FINAL_LINE_1, ARC_FINAL_LINE_2) for hook in ARC_TOP_HOOKS
 ]
 
 ARC_AUTHORITY_CAPTIONS = [
@@ -153,14 +160,12 @@ def resolve_and_normalize_link(raw_line):
     if not raw_line:
         return None, None
 
-    # Extract URL even if mobile clipboard included extra share text
     match = re.search(r'(https?://[^\s"\'<>]+)', raw_line.strip())
     if not match:
         return None, None
 
     url = match.group(1).strip()
 
-    # Resolve mobile app shortlinks (vm.tiktok.com, vt.tiktok.com, tiktok.com/t/, ig.me, pin.it, youtu.be)
     if any(short in url.lower() for short in ["vm.tiktok.com", "vt.tiktok.com", "/t/", "ig.me", "pin.it", "bit.ly", "tinyurl.com"]):
         try:
             r = requests.get(url, headers=BROWSER_HEADERS, allow_redirects=True, stream=True, timeout=15)
@@ -174,21 +179,18 @@ def resolve_and_normalize_link(raw_line):
     host = parsed.netloc.lower().replace("m.instagram.com", "www.instagram.com").replace("m.tiktok.com", "www.tiktok.com")
     path = parsed.path.rstrip("/")
 
-    # Normalize Instagram mobile/web links (/reel/CODE or /reels/CODE or /p/CODE)
     ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', path)
     if "instagram.com" in host and ig_match:
         shortcode = ig_match.group(1)
         clean_url = f"https://www.instagram.com/reel/{shortcode}/"
         return clean_url, f"ig_{shortcode}"
 
-    # Normalize TikTok mobile/web links
     tt_match = re.search(r'/video/(\d+)', path)
     if "tiktok.com" in host and tt_match:
         vid_id = tt_match.group(1)
         clean_url = f"https://www.tiktok.com{path}"
         return clean_url, f"tt_{vid_id}"
 
-    # Normalize YouTube Shorts / Watch links
     yt_match = re.search(r'/(?:shorts|watch)/([A-Za-z0-9_-]{11})', path)
     if ("youtube.com" in host or "youtu.be" in host):
         if yt_match:
@@ -199,7 +201,6 @@ def resolve_and_normalize_link(raw_line):
             vid_id = qs["v"][0]
             return f"https://www.youtube.com/watch?v={vid_id}", f"yt_{vid_id}"
 
-    # For direct MP4s or other URLs, strip tracking query parameters (igsh, utm_*, si)
     clean_url = f"{parsed.scheme}://{host}{path}"
     if parsed.query and not any(k in parsed.query.lower() for k in ["igsh", "utm_", "si=", "_t="]):
         clean_url = f"{clean_url}?{parsed.query}"
@@ -305,8 +306,6 @@ def download_via_tikwm_api(target_url, out_path):
     return False
 
 def download_instagram_mobile_or_web_reel(clean_url, out_path):
-    """Multi-route extractor for Instagram mobile & web Reel links."""
-    # Route A: Directvx / ddinstagram MP4 mirror extraction
     try:
         vx_url = clean_url.replace("www.instagram.com", "d.ddinstagram.com")
         r = requests.get(vx_url, headers=BROWSER_HEADERS, allow_redirects=True, timeout=25)
@@ -318,7 +317,6 @@ def download_instagram_mobile_or_web_reel(clean_url, out_path):
     except Exception:
         pass
 
-    # Route B: yt-dlp with mobile headers
     ydl_opts = {
         "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "outtmpl": out_path,
@@ -399,10 +397,6 @@ def harvest_live_mixkit_luxury_mp4s(posted_history):
     return discovered_urls
 
 def ingest_single_master_reel_for_wave(posted_history):
-    """
-    Pulls ONE master Reel for the entire 23-account wave, immediately deletes it from reel_links.txt,
-    and locks both the raw link and canonical ID into posted_history.txt so it is NEVER reposted again.
-    """
     os.makedirs(ASSETS_DIR, exist_ok=True)
 
     raw_queue_lines = []
@@ -410,14 +404,12 @@ def ingest_single_master_reel_for_wave(posted_history):
         with open(LINKS_FILE, "r", encoding="utf-8") as f:
             raw_queue_lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
-    # LAYER 1: Process mobile or web links from reel_links.txt
     for raw_line in raw_queue_lines:
         clean_url, canonical_id = resolve_and_normalize_link(raw_line)
         if not clean_url:
             remove_link_from_queue(raw_line)
             continue
 
-        # If already posted previously, forget it immediately and move to next link
         if canonical_id in posted_history or clean_url in posted_history or raw_line in posted_history:
             log(f"[SKIP] Reel already used in past wave ({canonical_id}). Removing from queue...")
             remove_link_from_queue(raw_line, clean_url)
@@ -429,7 +421,6 @@ def ingest_single_master_reel_for_wave(posted_history):
 
         downloaded = False
 
-        # A. Direct MP4 link
         if clean_url.lower().endswith(".mp4"):
             try:
                 r = requests.get(clean_url, headers=BROWSER_HEADERS, timeout=(10, 40))
@@ -440,15 +431,12 @@ def ingest_single_master_reel_for_wave(posted_history):
             except Exception:
                 pass
 
-        # B. TikTok Mobile or Web link
         if not downloaded and "tiktok.com" in clean_url.lower():
             downloaded = download_via_tikwm_api(clean_url, full_path)
 
-        # C. Instagram Mobile or Web Reel link
         if not downloaded and "instagram.com" in clean_url.lower():
             downloaded = download_instagram_mobile_or_web_reel(clean_url, full_path)
 
-        # D. Universal yt-dlp fallback
         if not downloaded:
             ydl_opts = {
                 "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -466,7 +454,6 @@ def ingest_single_master_reel_for_wave(posted_history):
             except Exception as e:
                 log(f"[WARNING] Link extraction failed ({clean_url}): {e}")
 
-        # Permanently lock into history and delete from reel_links.txt so it is NEVER used again
         append_to_set_file(HISTORY_FILE, canonical_id, posted_history)
         append_to_set_file(HISTORY_FILE, clean_url, posted_history)
         append_to_set_file(HISTORY_FILE, raw_line, posted_history)
@@ -476,7 +463,6 @@ def ingest_single_master_reel_for_wave(posted_history):
             log(f"[MASTER LOCKED] Loaded {os.path.basename(full_path)} for all 23 variations & wiped from queue.")
             return full_path
 
-    # LAYER 2: TikWM Viral Edit Harvester (if reel_links.txt is empty)
     premade_candidates = fetch_unblocked_premade_viral_edits(posted_history)
     for vid_id, play_url in premade_candidates:
         full_path = os.path.join(ASSETS_DIR, f"master_{vid_id}.mp4")
@@ -493,7 +479,6 @@ def ingest_single_master_reel_for_wave(posted_history):
         except Exception:
             continue
 
-    # LAYER 3: Direct HD Luxury / Supercar MP4 Harvester
     log("[FALLBACK HARVESTER] Pulling direct HD luxury/supercar master stream...")
     luxury_mp4s = harvest_live_mixkit_luxury_mp4s(posted_history)
     for mp4_url in luxury_mp4s:
@@ -592,28 +577,22 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     log(f"[STEP 2/4] Rendering 4K HDR Variation #{node_idx + 1} + Anti-AI Stealth Hash ({os.path.basename(input_path)})...")
 
     raw_dur = get_media_duration(input_path)
-    # Unique imperceptible start trim (0.03s to 0.18s) shifts every keyframe boundary per account
     trim_start = round(random.uniform(0.03, 0.18), 3) if raw_dur > 6.0 else 0.0
-    # Sub-1% speed shift: invisible to the human eye/ear, completely alters optical-flow & frame hashes
     speed = round(random.uniform(0.993, 1.007), 4)
     final_duration = round(min(18.0, max(5.5, (raw_dur - trim_start - 0.08) / speed)), 2)
 
-    # Exact 70% / 30% split: Upper-Middle Hook runs first 70%, Center Authority Finale runs last 30%
     last_30_start = round(final_duration * 0.70, 2)
 
-    # Invisible micro-crop (98.5% to 99.4%) + sub-pixel shift breaks macroblock grid detection
     crop_keep = round(random.uniform(0.985, 0.994), 4)
     x_jitter = random.randint(-3, 3)
     y_jitter = random.randint(-3, 3)
 
-    # 4K HDR Visual Enhancer Parameters (Crisp contrast, rich saturation, deep midtone gamma, 5x5 luma sharpen)
     b_shift = round(random.uniform(0.002, 0.014), 4)
     c_shift = round(random.uniform(1.075, 1.115), 4)
     s_shift = round(random.uniform(1.120, 1.175), 4)
     g_shift = round(random.uniform(0.965, 0.990), 4)
     luma_sharp = round(random.uniform(0.94, 1.14), 2)
 
-    # Unique Color Temperature & Micro-Toning per account
     rs = round(random.uniform(-0.018, -0.006), 4)
     gs = round(random.uniform(-0.008, 0.006), 4)
     bs = round(random.uniform(0.008, 0.022), 4)
@@ -623,11 +602,9 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
 
     epoch_jitter = int(time.time()) - random.randint(600, 259200)
 
-    # Rotate through the unified single-message sequences across accounts
     msg_tuple = ARC_UNIFIED_MESSAGES[(node_idx + random.randint(0, len(ARC_UNIFIED_MESSAGES) - 1)) % len(ARC_UNIFIED_MESSAGES)]
     top_hook, center_line1, center_line2 = [t.replace("'", "") for t in msg_tuple]
 
-    # Dynamic safe-zone positioning to avoid colliding with existing reel texts
     top_x_offset = random.randint(-6, 6)
     top_y = random.randint(250, 315)
 
@@ -645,19 +622,17 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
         f"eq=brightness={b_shift}:contrast={c_shift}:saturation={s_shift}:gamma={g_shift},"
         f"unsharp=lx=5:ly=5:la={luma_sharp}:cx=3:cy=3:ca=0.25,"
         f"noise=alls=1:allf=t,"
-        # STAGE 1 (First 70%): 1-2 Word Upper-Middle Top Hook
         f"drawtext=fontfile={font_path}:text='{top_hook}':expansion=none:"
         f"fontcolor=white@0.92:fontsize=38:shadowcolor=black@0.85:shadowx=2:shadowy=2:"
         f"box=1:boxcolor=black@0.58:boxborderw=14:"
         f"x=(w-text_w)/2+{top_x_offset}:y={top_y}:enable='lt(t,{last_30_start})',"
-        # STAGE 2 (Last 30%): Middle-Center Authority Message + Subtle ARC Direction
         f"drawbox=x=0:y={band_y}:w=iw:h=195:color=black@0.48:t=fill:enable='gte(t,{last_30_start})',"
         f"drawtext=fontfile={font_path}:text='{center_line1}':expansion=none:"
-        f"fontcolor=white:fontsize=34:shadowcolor=black@0.95:shadowx=2:shadowy=2:"
+        f"fontcolor=white:fontsize=28:shadowcolor=black@0.95:shadowx=2:shadowy=2:"
         f"box=1:boxcolor=black@0.88:boxborderw=16:"
         f"x=(w-text_w)/2:y={c1_y}:enable='gte(t,{last_30_start})',"
         f"drawtext=fontfile={font_path}:text='{center_line2}':expansion=none:"
-        f"fontcolor=0xFFD700:fontsize=31:shadowcolor=black@0.95:shadowx=2:shadowy=2:"
+        f"fontcolor=0xFFD700:fontsize=24:shadowcolor=black@0.95:shadowx=2:shadowy=2:"
         f"box=1:boxcolor=black@0.88:boxborderw=16:"
         f"x=(w-text_w)/2:y={c2_y}:enable='gte(t,{last_30_start})'"
     )
@@ -666,7 +641,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     fade_out_st = round(max(1.0, final_duration - 0.7), 2)
     has_orig_audio = video_has_audio_stream(input_path)
 
-    # Invisible audio fingerprint mutation per account (micro pitch + randomized EQ notch)
     pitch_shift = round(random.uniform(0.994, 1.006), 4)
     eq_freq = random.randint(1200, 3800)
     eq_gain = random.choice([-1.2, -0.8, 0.8, 1.2])
@@ -818,7 +792,6 @@ def main():
     wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
     caption_batch = generate_unique_caption_batch(len(wave_accounts))
 
-    # Ingest ONE single master Reel for this entire wave, wipe it from reel_links.txt, and lock it in posted_history.txt
     master_video = ingest_single_master_reel_for_wave(posted_history)
     success_count = 0
 
@@ -843,7 +816,6 @@ def main():
                 log(f"[NATURAL TIMER] Waiting {cooldown_sec // 60}m {cooldown_sec % 60}s (randomized within 2m) before next account upload...")
                 time.sleep(cooldown_sec)
     finally:
-        # Delete the local master file after all 23 variations are published so it is completely forgotten
         if master_video and os.path.exists(master_video):
             os.remove(master_video)
 
