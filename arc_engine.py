@@ -1,6 +1,8 @@
 import os
+import re
 import sys
 import time
+import urllib.parse
 import subprocess
 import requests
 import random
@@ -22,12 +24,11 @@ META_TOKENS = [
 
 GRAPH_API_VERSION = "v20.0"
 
+# 1 Master Reel per wave -> 23 unique 4K variations across all 23 accounts -> Never reposted again
 ACCOUNTS_PER_WAVE = 23
-# 1 = Every account gets a different premade reel | 23 = All 23 accounts post 1 mutated master reel per wave
-MAX_ACCOUNTS_PER_VIDEO = 1
 
-# Randomized publishing delay within 2 minutes (25 to 120 seconds)
-MIN_COOLDOWN_SECONDS = 25
+# Randomized publishing delay strictly within 2 minutes (15 to 120 seconds)
+MIN_COOLDOWN_SECONDS = 15
 MAX_COOLDOWN_SECONDS = 120
 
 LINKS_FILE = "reel_links.txt"
@@ -36,7 +37,7 @@ CURSOR_FILE = "account_cursor.txt"
 ASSETS_DIR = "assets"
 CUSTOM_FONT_PATH = "Montserrat-ExtraBold.ttf"
 
-# False = Keep the premade reel's original beat-synced audio (with invisible hash mutation)
+# False = Keep the premade reel's original beat-synced audio (with invisible per-account hash mutation)
 # True  = Replace audio with a track from CUSTOM_SONG_LIBRARY
 USE_CUSTOM_SONG_OVER_EDIT = False
 
@@ -44,10 +45,11 @@ CUSTOM_SONG_LIBRARY = [
     "https://assets.mixkit.co/music/403/403.mp3",
     "https://assets.mixkit.co/music/841/841.mp3",
     "https://assets.mixkit.co/music/171/171.mp3",
-    "https://assets.mixkit.co/music/130/130.mp3"
+    "https://assets.mixkit.co/music/130/130.mp3",
+    "https://assets.mixkit.co/music/132/132.mp3",
+    "https://assets.mixkit.co/music/371/371.mp3"
 ]
 
-# Unblocked Viral Edit Search Queries (Used automatically if reel_links.txt runs dry)
 PREMADE_VIRAL_EDIT_QUERIES = [
     "dark luxury lifestyle edit",
     "billionaire aesthetic velocity edit",
@@ -57,6 +59,28 @@ PREMADE_VIRAL_EDIT_QUERIES = [
     "private jet night aesthetic edit",
     "high status men luxury edit"
 ]
+
+VERIFIED_LUXURY_VIDEO_IDS = [
+    "44559", "36289", "32991", "17256", "86", "40248",
+    "151", "41576", "35540", "39912", "4978", "4308",
+    "52427", "40766", "41587", "41585", "41575", "41614"
+]
+
+MIXKIT_DISCOVERY_PAGES = [
+    "https://mixkit.co/free-stock-video/discover/luxury/?orientation=vertical",
+    "https://mixkit.co/free-stock-video/discover/suit/?orientation=vertical",
+    "https://mixkit.co/free-stock-video/car/",
+    "https://mixkit.co/free-stock-video/city/",
+    "https://mixkit.co/free-stock-video/business/"
+]
+
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.tikwm.com",
+    "Referer": "https://www.tikwm.com/"
+}
 
 # ==========================================
 # 2. COHESIVE PSYCHOLOGICAL COPY & CAPTIONS (PURE ARC — ZERO "$100" MENTIONS)
@@ -74,10 +98,13 @@ ARC_UNIFIED_MESSAGES = [
     ("DOMINION.", "MONEY FOLLOWS AUTHORITY.", "YOU KNOW WHERE TO LOOK  •  @ARCBLOODLINE30"),
     ("SILENCE.", "NO NOISE. JUST POWER.", "ENTER THE TERMINAL  •  @ARCBLOODLINE30"),
     ("THE CODE.", "99% WATCH FROM THE SIDELINES.", "THE 1% MOVE IN SILENCE  •  @ARCBLOODLINE30"),
-    ("SOVEREIGN.", "NOBODY IS COMING TO SAVE YOU.", "BUILD YOUR OWN EMPIRE  •  @ARCBLOODLINE30")
+    ("SOVEREIGN.", "NOBODY IS COMING TO SAVE YOU.", "BUILD YOUR OWN EMPIRE  •  @ARCBLOODLINE30"),
+    ("ORDER.", "CHAOS REWARDS THE PREPARED.", "POSITION YOURSELF  •  @ARCBLOODLINE30"),
+    ("DYNASTY.", "WE DO NOT COMPETE.", "WE DICTATE THE TERMS  •  @ARCBLOODLINE30"),
+    ("FOCUS.", "DISTRACTION IS A TAX ON THE WEAK.", "LOCK IN  •  @ARCBLOODLINE30"),
+    ("ARCHITECT.", "STOP RENTING YOUR EXISTENCE.", "OWN THE INFRASTRUCTURE  •  @ARCBLOODLINE30")
 ]
 
-# Formatted Authority Captions (@ARCBLOODLINE30 front-loaded, zero "$100 kit" mentions)
 ARC_AUTHORITY_CAPTIONS = [
     "@ARCBLOODLINE30 Most men spend their lives building someone else's empire. The exit is in the bio.",
     "@ARCBLOODLINE30 Wealth is not luck. It is architecture. Step inside @ARCBLOODLINE30.",
@@ -102,7 +129,11 @@ ARC_AUTHORITY_CAPTIONS = [
     "@ARCBLOODLINE30 Master the psychology of wealth. The doors to ARC are open at @ARCBLOODLINE30.",
     "@ARCBLOODLINE30 Your bloodline depends on the decisions you make today. -> @ARCBLOODLINE30",
     "@ARCBLOODLINE30 Real authority never begs for attention. If you are ready, tap @ARCBLOODLINE30.",
-    "@ARCBLOODLINE30 Leave the matrix to the spectators. Build with the architects at @ARCBLOODLINE30."
+    "@ARCBLOODLINE30 Leave the matrix to the spectators. Build with the architects at @ARCBLOODLINE30.",
+    "@ARCBLOODLINE30 Fortune favours the organized. Claim your position inside @ARCBLOODLINE30.",
+    "@ARCBLOODLINE30 Men of substance do not wait for permission. Enter the circle at @ARCBLOODLINE30.",
+    "@ARCBLOODLINE30 Escape the consumer trap. Build sovereign assets with @ARCBLOODLINE30.",
+    "@ARCBLOODLINE30 The rules were written to keep you compliant. Rewrite them inside @ARCBLOODLINE30."
 ]
 
 def generate_unique_caption_batch(count):
@@ -112,8 +143,69 @@ def generate_unique_caption_batch(count):
     return [f"{pool[i % len(pool)]}{random.choice(micro_tags)}".strip() for i in range(count)]
 
 # ==========================================
-# 3. QUEUE & LEDGER MANAGERS
+# 3. UNIVERSAL MOBILE & WEB LINK RESOLVER + LEDGER
 # ==========================================
+def resolve_and_normalize_link(raw_line):
+    """
+    Accepts any mobile app share string or web link (Instagram ?igsh=, TikTok vm./vt./t/, YouTube ?si=, etc.),
+    extracts the URL, resolves mobile shortlink redirects, and returns (clean_url, canonical_id).
+    """
+    if not raw_line:
+        return None, None
+
+    # Extract URL even if mobile clipboard included extra share text
+    match = re.search(r'(https?://[^\s"\'<>]+)', raw_line.strip())
+    if not match:
+        return None, None
+
+    url = match.group(1).strip()
+
+    # Resolve mobile app shortlinks (vm.tiktok.com, vt.tiktok.com, tiktok.com/t/, ig.me, pin.it, youtu.be)
+    if any(short in url.lower() for short in ["vm.tiktok.com", "vt.tiktok.com", "/t/", "ig.me", "pin.it", "bit.ly", "tinyurl.com"]):
+        try:
+            r = requests.get(url, headers=BROWSER_HEADERS, allow_redirects=True, stream=True, timeout=15)
+            if r.url and r.url.startswith("http"):
+                url = r.url
+            r.close()
+        except Exception:
+            pass
+
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc.lower().replace("m.instagram.com", "www.instagram.com").replace("m.tiktok.com", "www.tiktok.com")
+    path = parsed.path.rstrip("/")
+
+    # Normalize Instagram mobile/web links (/reel/CODE or /reels/CODE or /p/CODE)
+    ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', path)
+    if "instagram.com" in host and ig_match:
+        shortcode = ig_match.group(1)
+        clean_url = f"https://www.instagram.com/reel/{shortcode}/"
+        return clean_url, f"ig_{shortcode}"
+
+    # Normalize TikTok mobile/web links
+    tt_match = re.search(r'/video/(\d+)', path)
+    if "tiktok.com" in host and tt_match:
+        vid_id = tt_match.group(1)
+        clean_url = f"https://www.tiktok.com{path}"
+        return clean_url, f"tt_{vid_id}"
+
+    # Normalize YouTube Shorts / Watch links
+    yt_match = re.search(r'/(?:shorts|watch)/([A-Za-z0-9_-]{11})', path)
+    if ("youtube.com" in host or "youtu.be" in host):
+        if yt_match:
+            vid_id = yt_match.group(1)
+            return f"https://www.youtube.com/shorts/{vid_id}", f"yt_{vid_id}"
+        qs = urllib.parse.parse_qs(parsed.query)
+        if "v" in qs and qs["v"]:
+            vid_id = qs["v"][0]
+            return f"https://www.youtube.com/watch?v={vid_id}", f"yt_{vid_id}"
+
+    # For direct MP4s or other URLs, strip tracking query parameters (igsh, utm_*, si)
+    clean_url = f"{parsed.scheme}://{host}{path}"
+    if parsed.query and not any(k in parsed.query.lower() for k in ["igsh", "utm_", "si=", "_t="]):
+        clean_url = f"{clean_url}?{parsed.query}"
+
+    return clean_url, clean_url
+
 def load_set_file(filepath):
     if not os.path.exists(filepath):
         return set()
@@ -129,15 +221,20 @@ def append_to_set_file(filepath, identifier, memory_set):
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(f"{clean}\n")
 
-def remove_link_from_queue(used_url):
-    if not used_url or not os.path.exists(LINKS_FILE):
+def remove_link_from_queue(raw_line_to_remove, clean_url_to_remove=None):
+    if not os.path.exists(LINKS_FILE):
         return
     with open(LINKS_FILE, "r", encoding="utf-8") as f:
         lines = f.readlines()
     with open(LINKS_FILE, "w", encoding="utf-8") as f:
         for line in lines:
-            if line.strip() != used_url.strip():
-                f.write(line)
+            stripped = line.strip()
+            if not stripped:
+                continue
+            c_url, _ = resolve_and_normalize_link(stripped)
+            if stripped == raw_line_to_remove.strip() or (clean_url_to_remove and c_url == clean_url_to_remove):
+                continue
+            f.write(f"{stripped}\n")
 
 def select_round_robin_accounts(all_accounts, batch_size):
     sorted_accs = sorted(all_accounts, key=lambda x: str(x["ig_user_id"]))
@@ -161,10 +258,10 @@ def select_round_robin_accounts(all_accounts, batch_size):
     return selected
 
 # ==========================================
-# 4. PREMADE VIRAL REEL HARVESTER & DOWNLOADER
+# 4. MULTI-LAYER MOBILE & WEB REEL DOWNLOADER
 # ==========================================
 def verify_video_has_real_frames(video_path):
-    if not os.path.exists(video_path) or os.path.getsize(video_path) < 150000:
+    if not os.path.exists(video_path) or os.path.getsize(video_path) < 120000:
         return False
     try:
         cmd = [
@@ -191,119 +288,230 @@ def video_has_audio_stream(video_path):
 def download_via_tikwm_api(target_url, out_path):
     try:
         api_url = "https://www.tikwm.com/api/"
-        res = requests.post(api_url, data={"url": target_url, "hd": 1}, timeout=20).json()
-        data = res.get("data") or {}
-        play_url = data.get("hdplay") or data.get("play")
-        if play_url:
-            vid_bytes = requests.get(play_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=35).content
-            if len(vid_bytes) > 150000:
-                with open(out_path, "wb") as f:
-                    f.write(vid_bytes)
-                return verify_video_has_real_frames(out_path)
+        r = requests.post(api_url, data={"url": target_url, "hd": 1}, headers=BROWSER_HEADERS, timeout=20)
+        if r.status_code == 200 and r.text.strip().startswith("{"):
+            data = r.json().get("data") or {}
+            play_url = data.get("hdplay") or data.get("play")
+            if play_url:
+                if play_url.startswith("/"):
+                    play_url = f"https://www.tikwm.com{play_url}"
+                vid_bytes = requests.get(play_url, headers=BROWSER_HEADERS, timeout=35).content
+                if len(vid_bytes) > 150000:
+                    with open(out_path, "wb") as f:
+                        f.write(vid_bytes)
+                    return verify_video_has_real_frames(out_path)
     except Exception as e:
-        log(f"[WARNING] TikWM extractor fallback failed: {e}")
+        log(f"[WARNING] TikWM extractor fallback skipped: {e}")
+    return False
+
+def download_instagram_mobile_or_web_reel(clean_url, out_path):
+    """Multi-route extractor for Instagram mobile & web Reel links."""
+    # Route A: Directvx / ddinstagram MP4 mirror extraction
+    try:
+        vx_url = clean_url.replace("www.instagram.com", "d.ddinstagram.com")
+        r = requests.get(vx_url, headers=BROWSER_HEADERS, allow_redirects=True, timeout=25)
+        if r.status_code == 200 and len(r.content) > 150000 and "video" in r.headers.get("Content-Type", "").lower():
+            with open(out_path, "wb") as f:
+                f.write(r.content)
+            if verify_video_has_real_frames(out_path):
+                return True
+    except Exception:
+        pass
+
+    # Route B: yt-dlp with mobile headers
+    ydl_opts = {
+        "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "outtmpl": out_path,
+        "merge_output_format": "mp4",
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 25,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+        }
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(clean_url, download=True)
+        if verify_video_has_real_frames(out_path):
+            return True
+    except Exception:
+        pass
+
     return False
 
 def fetch_unblocked_premade_viral_edits(posted_history):
-    query = random.choice(PREMADE_VIRAL_EDIT_QUERIES)
-    log(f"[AUTO-HARVESTER] Searching premade viral edits for: '{query}'...")
     discovered = []
-    try:
-        res = requests.post(
-            "https://www.tikwm.com/api/feed/search",
-            data={"keywords": query, "count": 25, "cursor": random.randint(0, 15)},
-            timeout=20
-        ).json()
-        videos = (res.get("data") or {}).get("videos") or []
-        for v in videos:
-            vid_id = str(v.get("video_id", ""))
-            duration = int(v.get("duration", 15))
-            play_url = v.get("play") or v.get("wmplay")
-            if play_url and 6 <= duration <= 22 and vid_id not in posted_history:
-                discovered.append((vid_id, play_url))
-    except Exception as e:
-        log(f"[WARNING] Auto-harvester search error: {e}")
+    queries = random.sample(PREMADE_VIRAL_EDIT_QUERIES, min(3, len(PREMADE_VIRAL_EDIT_QUERIES)))
+
+    for query in queries:
+        log(f"[AUTO-HARVESTER] Searching premade viral edits for: '{query}'...")
+        try:
+            r = requests.post(
+                "https://www.tikwm.com/api/feed/search",
+                data={"keywords": query, "count": 25, "cursor": random.randint(0, 10)},
+                headers=BROWSER_HEADERS,
+                timeout=20
+            )
+            if r.status_code == 200 and r.text.strip().startswith("{"):
+                res = r.json()
+                videos = (res.get("data") or {}).get("videos") or []
+                for v in videos:
+                    vid_id = f"tt_{v.get('video_id', '')}"
+                    duration = int(v.get("duration", 15))
+                    play_url = v.get("play") or v.get("wmplay")
+                    if play_url and 6 <= duration <= 22 and vid_id not in posted_history:
+                        if play_url.startswith("/"):
+                            play_url = f"https://www.tikwm.com{play_url}"
+                        discovered.append((vid_id, play_url))
+                if discovered:
+                    break
+            else:
+                time.sleep(1.5)
+        except Exception as e:
+            log(f"[WARNING] TikWM search retry ({query}): {e}")
+            time.sleep(1.5)
 
     random.shuffle(discovered)
     return discovered
 
-def ingest_single_fresh_reel(posted_history):
-    os.makedirs(ASSETS_DIR, exist_ok=True)
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+def harvest_live_mixkit_luxury_mp4s(posted_history):
+    discovered_urls = []
+    for page_url in random.sample(MIXKIT_DISCOVERY_PAGES, min(3, len(MIXKIT_DISCOVERY_PAGES))):
+        try:
+            r = requests.get(page_url, headers=BROWSER_HEADERS, timeout=15)
+            if r.status_code == 200:
+                ids = re.findall(r'/free-stock-video/[a-z0-9\-]+-(\d+)/', r.text)
+                for vid_id in ids:
+                    mp4_url = f"https://assets.mixkit.co/videos/{vid_id}/{vid_id}-720.mp4"
+                    if mp4_url not in posted_history and mp4_url not in discovered_urls:
+                        discovered_urls.append(mp4_url)
+        except Exception:
+            pass
 
-    queue_urls = []
+    fallback_ids = list(VERIFIED_LUXURY_VIDEO_IDS)
+    random.shuffle(fallback_ids)
+    for vid_id in fallback_ids:
+        mp4_url = f"https://assets.mixkit.co/videos/{vid_id}/{vid_id}-720.mp4"
+        if mp4_url not in posted_history and mp4_url not in discovered_urls:
+            discovered_urls.append(mp4_url)
+
+    return discovered_urls
+
+def ingest_single_master_reel_for_wave(posted_history):
+    """
+    Pulls ONE master Reel for the entire 23-account wave, immediately deletes it from reel_links.txt,
+    and locks both the raw link and canonical ID into posted_history.txt so it is NEVER reposted again.
+    """
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+
+    raw_queue_lines = []
     if os.path.exists(LINKS_FILE):
         with open(LINKS_FILE, "r", encoding="utf-8") as f:
-            queue_urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            raw_queue_lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
-    unposted_queue = [u for u in queue_urls if u not in posted_history]
+    # LAYER 1: Process mobile or web links from reel_links.txt
+    for raw_line in raw_queue_lines:
+        clean_url, canonical_id = resolve_and_normalize_link(raw_line)
+        if not clean_url:
+            remove_link_from_queue(raw_line)
+            continue
 
-    # 1. First priority: Links in reel_links.txt
-    for target_url in unposted_queue:
-        safe_id = abs(hash(target_url)) % (10 ** 8)
-        full_path = os.path.join(ASSETS_DIR, f"premade_{safe_id}.mp4")
-        log(f"[STEP 1/4] Downloading premade reel from queue: {target_url}")
+        # If already posted previously, forget it immediately and move to next link
+        if canonical_id in posted_history or clean_url in posted_history or raw_line in posted_history:
+            log(f"[SKIP] Reel already used in past wave ({canonical_id}). Removing from queue...")
+            remove_link_from_queue(raw_line, clean_url)
+            continue
 
-        if target_url.lower().endswith(".mp4"):
+        safe_id = abs(hash(canonical_id)) % (10 ** 8)
+        full_path = os.path.join(ASSETS_DIR, f"master_wave_{safe_id}.mp4")
+        log(f"[STEP 1/4] Ingesting Master Reel (Mobile/Web Link): {clean_url}")
+
+        downloaded = False
+
+        # A. Direct MP4 link
+        if clean_url.lower().endswith(".mp4"):
             try:
-                r = requests.get(target_url, headers=headers, timeout=(10, 40))
+                r = requests.get(clean_url, headers=BROWSER_HEADERS, timeout=(10, 40))
                 if r.status_code == 200 and len(r.content) > 150000:
                     with open(full_path, "wb") as f:
                         f.write(r.content)
-                    if verify_video_has_real_frames(full_path):
-                        append_to_set_file(HISTORY_FILE, target_url, posted_history)
-                        remove_link_from_queue(target_url)
-                        return full_path
+                    downloaded = verify_video_has_real_frames(full_path)
             except Exception:
                 pass
 
-        if "tiktok.com" in target_url.lower():
-            if download_via_tikwm_api(target_url, full_path):
-                append_to_set_file(HISTORY_FILE, target_url, posted_history)
-                remove_link_from_queue(target_url)
-                log(f"[SUCCESS] Premade TikTok edit downloaded: {os.path.basename(full_path)}")
-                return full_path
+        # B. TikTok Mobile or Web link
+        if not downloaded and "tiktok.com" in clean_url.lower():
+            downloaded = download_via_tikwm_api(clean_url, full_path)
 
-        ydl_opts = {
-            "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "outtmpl": full_path,
-            "merge_output_format": "mp4",
-            "quiet": True,
-            "no_warnings": True,
-            "socket_timeout": 25,
-            "playlist_items": "1"
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(target_url, download=True)
-            if verify_video_has_real_frames(full_path):
-                append_to_set_file(HISTORY_FILE, target_url, posted_history)
-                remove_link_from_queue(target_url)
-                log(f"[SUCCESS] Premade queue edit ready: {os.path.basename(full_path)}")
-                return full_path
-        except Exception as e:
-            log(f"[WARNING] Queue link skipped ({target_url}): {e}")
-            append_to_set_file(HISTORY_FILE, target_url, posted_history)
-            remove_link_from_queue(target_url)
+        # C. Instagram Mobile or Web Reel link
+        if not downloaded and "instagram.com" in clean_url.lower():
+            downloaded = download_instagram_mobile_or_web_reel(clean_url, full_path)
 
-    # 2. Second priority: Unblocked viral edit harvester
+        # D. Universal yt-dlp fallback
+        if not downloaded:
+            ydl_opts = {
+                "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "outtmpl": full_path,
+                "merge_output_format": "mp4",
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": 25,
+                "playlist_items": "1"
+            }
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.extract_info(clean_url, download=True)
+                downloaded = verify_video_has_real_frames(full_path)
+            except Exception as e:
+                log(f"[WARNING] Link extraction failed ({clean_url}): {e}")
+
+        # Permanently lock into history and delete from reel_links.txt so it is NEVER used again
+        append_to_set_file(HISTORY_FILE, canonical_id, posted_history)
+        append_to_set_file(HISTORY_FILE, clean_url, posted_history)
+        append_to_set_file(HISTORY_FILE, raw_line, posted_history)
+        remove_link_from_queue(raw_line, clean_url)
+
+        if downloaded:
+            log(f"[MASTER LOCKED] Loaded {os.path.basename(full_path)} for all 23 variations & wiped from queue.")
+            return full_path
+
+    # LAYER 2: TikWM Viral Edit Harvester (if reel_links.txt is empty)
     premade_candidates = fetch_unblocked_premade_viral_edits(posted_history)
     for vid_id, play_url in premade_candidates:
-        full_path = os.path.join(ASSETS_DIR, f"viral_edit_{vid_id}.mp4")
+        full_path = os.path.join(ASSETS_DIR, f"master_{vid_id}.mp4")
         try:
-            log(f"[STEP 1/4] Fetching premade viral edit ID {vid_id}...")
-            r = requests.get(play_url, headers=headers, timeout=35)
+            log(f"[STEP 1/4] Fetching premade viral master edit ({vid_id})...")
+            r = requests.get(play_url, headers=BROWSER_HEADERS, timeout=35)
             if r.status_code == 200 and len(r.content) > 150000:
                 with open(full_path, "wb") as f:
                     f.write(r.content)
                 if verify_video_has_real_frames(full_path):
                     append_to_set_file(HISTORY_FILE, vid_id, posted_history)
-                    log(f"[SUCCESS] Premade viral edit verified: {os.path.basename(full_path)}")
+                    log(f"[MASTER LOCKED] Premade viral edit verified for wave: {os.path.basename(full_path)}")
                     return full_path
         except Exception:
             continue
 
-    raise RuntimeError("Could not fetch a premade reel! Add direct MP4 or TikTok/IG links to reel_links.txt.")
+    # LAYER 3: Direct HD Luxury / Supercar MP4 Harvester
+    log("[FALLBACK HARVESTER] Pulling direct HD luxury/supercar master stream...")
+    luxury_mp4s = harvest_live_mixkit_luxury_mp4s(posted_history)
+    for mp4_url in luxury_mp4s:
+        safe_id = abs(hash(mp4_url)) % (10 ** 8)
+        full_path = os.path.join(ASSETS_DIR, f"luxury_master_{safe_id}.mp4")
+        try:
+            r = requests.get(mp4_url, headers=BROWSER_HEADERS, timeout=(10, 35))
+            if r.status_code == 200 and len(r.content) > 120000:
+                with open(full_path, "wb") as f:
+                    f.write(r.content)
+                if verify_video_has_real_frames(full_path):
+                    append_to_set_file(HISTORY_FILE, mp4_url, posted_history)
+                    log(f"[MASTER LOCKED] HD Luxury master stream ready: {os.path.basename(full_path)}")
+                    return full_path
+        except Exception:
+            continue
+
+    raise RuntimeError("All 3 video harvester layers failed! Check network connectivity.")
 
 def get_random_custom_song():
     os.makedirs(ASSETS_DIR, exist_ok=True)
@@ -312,14 +520,13 @@ def get_random_custom_song():
         return None
 
     random.shuffle(valid_songs)
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     for song_url in valid_songs:
         safe_id = abs(hash(song_url)) % (10 ** 8)
         out_path = os.path.join(ASSETS_DIR, f"song_{safe_id}.mp3")
         if os.path.exists(out_path) and os.path.getsize(out_path) > 30000:
             return out_path
         try:
-            r = requests.get(song_url, headers=headers, timeout=25)
+            r = requests.get(song_url, headers=BROWSER_HEADERS, timeout=25)
             if r.status_code == 200 and len(r.content) > 30000:
                 with open(out_path, "wb") as f:
                     f.write(r.content)
@@ -381,32 +588,32 @@ def get_media_duration(input_path):
     except Exception:
         return 10.0
 
-def mutate_video_for_account(input_path, output_path, font_path):
-    log(f"[STEP 2/4] 4K HDR Remastering + Invisible Anti-AI Mutation ({os.path.basename(input_path)})...")
+def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
+    log(f"[STEP 2/4] Rendering 4K HDR Variation #{node_idx + 1} + Anti-AI Stealth Hash ({os.path.basename(input_path)})...")
 
     raw_dur = get_media_duration(input_path)
-    # Imperceptible start trim (0.04s to 0.16s) shifts all keyframe intervals
-    trim_start = round(random.uniform(0.04, 0.16), 3) if raw_dur > 6.0 else 0.0
-    # Sub-1% speed shift: 100% invisible to human eyes/ears, completely breaks frame-timing & optical-flow hashes
+    # Unique imperceptible start trim (0.03s to 0.18s) shifts every keyframe boundary per account
+    trim_start = round(random.uniform(0.03, 0.18), 3) if raw_dur > 6.0 else 0.0
+    # Sub-1% speed shift: invisible to the human eye/ear, completely alters optical-flow & frame hashes
     speed = round(random.uniform(0.993, 1.007), 4)
     final_duration = round(min(18.0, max(5.5, (raw_dur - trim_start - 0.08) / speed)), 2)
 
-    # Exact 70% / 30% split: Hook runs 0 -> 70%, Center Authority Finale runs last 30%
+    # Exact 70% / 30% split: Upper-Middle Hook runs first 70%, Center Authority Finale runs last 30%
     last_30_start = round(final_duration * 0.70, 2)
 
-    # Invisible micro-crop (98.6% to 99.4%) + 1-3px shift breaks spatial macroblock alignment
-    crop_keep = round(random.uniform(0.986, 0.994), 4)
+    # Invisible micro-crop (98.5% to 99.4%) + sub-pixel shift breaks macroblock grid detection
+    crop_keep = round(random.uniform(0.985, 0.994), 4)
     x_jitter = random.randint(-3, 3)
     y_jitter = random.randint(-3, 3)
 
-    # 4K HDR Visual Enhancer Parameters (Crisp contrast, rich saturation, deep midtone gamma)
+    # 4K HDR Visual Enhancer Parameters (Crisp contrast, rich saturation, deep midtone gamma, 5x5 luma sharpen)
     b_shift = round(random.uniform(0.002, 0.014), 4)
     c_shift = round(random.uniform(1.075, 1.115), 4)
     s_shift = round(random.uniform(1.120, 1.175), 4)
     g_shift = round(random.uniform(0.965, 0.990), 4)
-    luma_sharp = round(random.uniform(0.92, 1.12), 2)
+    luma_sharp = round(random.uniform(0.94, 1.14), 2)
 
-    # Subtle Color Temperature & Toning (Cool cinematic shadows, crisp clean highlights, unique per account)
+    # Unique Color Temperature & Micro-Toning per account
     rs = round(random.uniform(-0.018, -0.006), 4)
     gs = round(random.uniform(-0.008, 0.006), 4)
     bs = round(random.uniform(0.008, 0.022), 4)
@@ -416,15 +623,14 @@ def mutate_video_for_account(input_path, output_path, font_path):
 
     epoch_jitter = int(time.time()) - random.randint(600, 259200)
 
-    # Select a unified single-message sequence (Hook + matching Last-30% Center Finale)
-    top_hook, center_line1, center_line2 = [t.replace("'", "") for t in random.choice(ARC_UNIFIED_MESSAGES)]
+    # Rotate through the unified single-message sequences across accounts
+    msg_tuple = ARC_UNIFIED_MESSAGES[(node_idx + random.randint(0, len(ARC_UNIFIED_MESSAGES) - 1)) % len(ARC_UNIFIED_MESSAGES)]
+    top_hook, center_line1, center_line2 = [t.replace("'", "") for t in msg_tuple]
 
-    # Dynamic safe-zone positioning to avoid colliding with baked-in reel texts
-    # Upper-middle top hook sits between y=255 and y=315 (clears top UI and stays above center subtitles)
+    # Dynamic safe-zone positioning to avoid colliding with existing reel texts
     top_x_offset = random.randint(-6, 6)
-    top_y = random.randint(255, 315)
+    top_y = random.randint(250, 315)
 
-    # Middle-center finale (last 30%) with slight vertical adaptation around screen center
     center_y_shift = random.choice([-45, -20, 0, 20, 45])
     c1_y = f"(h/2)-55+{center_y_shift}"
     c2_y = f"(h/2)+22+{center_y_shift}"
@@ -445,7 +651,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
         f"box=1:boxcolor=black@0.58:boxborderw=14:"
         f"x=(w-text_w)/2+{top_x_offset}:y={top_y}:enable='lt(t,{last_30_start})',"
         # STAGE 2 (Last 30%): Middle-Center Authority Message + Subtle ARC Direction
-        f"drawbox=x=0:y={band_y}:w=iw:h=195:color=black@0.45:t=fill:enable='gte(t,{last_30_start})',"
+        f"drawbox=x=0:y={band_y}:w=iw:h=195:color=black@0.48:t=fill:enable='gte(t,{last_30_start})',"
         f"drawtext=fontfile={font_path}:text='{center_line1}':expansion=none:"
         f"fontcolor=white:fontsize=34:shadowcolor=black@0.95:shadowx=2:shadowy=2:"
         f"box=1:boxcolor=black@0.88:boxborderw=16:"
@@ -460,7 +666,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
     fade_out_st = round(max(1.0, final_duration - 0.7), 2)
     has_orig_audio = video_has_audio_stream(input_path)
 
-    # Invisible audio fingerprint mutation (micro pitch + randomized EQ notch)
+    # Invisible audio fingerprint mutation per account (micro pitch + randomized EQ notch)
     pitch_shift = round(random.uniform(0.994, 1.006), 4)
     eq_freq = random.randint(1200, 3800)
     eq_gain = random.choice([-1.2, -0.8, 0.8, 1.2])
@@ -474,7 +680,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
         )
         cmd = [
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
+            "-stream_loop", "-1", "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
             "-map", "0:v:0", "-map", "0:a:0",
             "-vf", vf_chain, "-af", af_chain,
             "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.1",
@@ -495,7 +701,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
             )
             cmd = [
                 "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-                "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
+                "-stream_loop", "-1", "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
                 "-stream_loop", "-1", "-ss", str(song_start), "-t", str(final_duration), "-i", custom_song,
                 "-map", "0:v:0", "-map", "1:a:0",
                 "-vf", vf_chain, "-af", af_chain,
@@ -508,7 +714,7 @@ def mutate_video_for_account(input_path, output_path, font_path):
         else:
             cmd = [
                 "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-                "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
+                "-stream_loop", "-1", "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
                 "-vf", vf_chain,
                 "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.1",
                 "-crf", crf_val, "-preset", "veryfast", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
@@ -585,7 +791,7 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
     log(f"[SUCCESS] PUBLISHED LIVE! Media ID: {publish_res['id']}")
 
 # ==========================================
-# 8. MAIN EXECUTION
+# 8. MAIN EXECUTION (1 MASTER REEL -> 23 VARIATIONS PER WAVE)
 # ==========================================
 def main():
     log("=== ARC 4K STEALTH REMASTER & AUTHORITY ENGINE STARTED ===")
@@ -612,35 +818,36 @@ def main():
     wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
     caption_batch = generate_unique_caption_batch(len(wave_accounts))
 
-    current_video = None
+    # Ingest ONE single master Reel for this entire wave, wipe it from reel_links.txt, and lock it in posted_history.txt
+    master_video = ingest_single_master_reel_for_wave(posted_history)
     success_count = 0
 
-    for index, acc in enumerate(wave_accounts):
-        if index % MAX_ACCOUNTS_PER_VIDEO == 0 or not current_video:
-            new_vid = ingest_single_fresh_reel(posted_history)
-            if new_vid:
-                current_video = new_vid
+    try:
+        for index, acc in enumerate(wave_accounts):
+            log(f"\n--- NODE [{index+1}/{len(wave_accounts)}]: {acc['page_name']} ({acc['ig_user_id']}) ---")
+            mutated_output = f"arc_4k_stealth_{index}.mp4"
 
-        log(f"\n--- NODE [{index+1}/{len(wave_accounts)}]: {acc['page_name']} ({acc['ig_user_id']}) ---")
-        mutated_output = f"arc_4k_stealth_{index}.mp4"
+            try:
+                mutate_video_for_account(master_video, mutated_output, font_path, node_idx=index)
+                public_url = upload_for_meta_download(mutated_output)
+                publish_reel_to_instagram(acc["ig_user_id"], public_url, caption_batch[index], acc["token"])
+                success_count += 1
+            except Exception as e:
+                log(f"[ERROR] Failed on {acc['page_name']}: {e}")
+            finally:
+                if os.path.exists(mutated_output):
+                    os.remove(mutated_output)
 
-        try:
-            mutate_video_for_account(current_video, mutated_output, font_path)
-            public_url = upload_for_meta_download(mutated_output)
-            publish_reel_to_instagram(acc["ig_user_id"], public_url, caption_batch[index], acc["token"])
-            success_count += 1
-        except Exception as e:
-            log(f"[ERROR] Failed on {acc['page_name']}: {e}")
-        finally:
-            if os.path.exists(mutated_output):
-                os.remove(mutated_output)
+            if index < len(wave_accounts) - 1:
+                cooldown_sec = random.randint(MIN_COOLDOWN_SECONDS, MAX_COOLDOWN_SECONDS)
+                log(f"[NATURAL TIMER] Waiting {cooldown_sec // 60}m {cooldown_sec % 60}s (randomized within 2m) before next account upload...")
+                time.sleep(cooldown_sec)
+    finally:
+        # Delete the local master file after all 23 variations are published so it is completely forgotten
+        if master_video and os.path.exists(master_video):
+            os.remove(master_video)
 
-        if index < len(wave_accounts) - 1:
-            cooldown_sec = random.randint(MIN_COOLDOWN_SECONDS, MAX_COOLDOWN_SECONDS)
-            log(f"[NATURAL TIMER] Waiting {cooldown_sec // 60}m {cooldown_sec % 60}s (randomized within 2m) before next account upload...")
-            time.sleep(cooldown_sec)
-
-    log(f"\n=== WAVE COMPLETE: {success_count}/{len(wave_accounts)} 4K AUTHORITY REELS PUBLISHED ===")
+    log(f"\n=== WAVE COMPLETE: {success_count}/{len(wave_accounts)} UNIQUE 4K VARIATIONS OF MASTER REEL PUBLISHED ===")
     if success_count == 0:
         raise RuntimeError("0 Reels were published in this wave! Check node error logs above.")
 
