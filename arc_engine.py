@@ -110,7 +110,7 @@ ARC_TOP_HOOKS = [
     "W H Y   W A T C H   O T H E R   M E N   L I V E   Y O U R   L I F E ?",
     "T H E   M O N T H L Y   P A Y C H E C K   T R A P",
     "S I L E N C E   T H E   N O I S E .   B U I L D   L E V E R A G E .",
-    "C O M F O R T   I S   S L O W L Y   K I L L I N G   Y O U R   F U T U R E",
+    "C O M F O R T   I S   S L O W LY   K I L L I N G   Y O U R   F U T U R E",
     "Y O U   D O N T   L A C K   T A L E N T .   Y O U   L A C K   A   S Y S T E M .",
     "S T O P   R E N T I N G   Y O U R   O W N   L I F E",
     "O B E D I E N C E   W I L L   N E V E R   M A K E   Y O U   R I C H"
@@ -228,7 +228,7 @@ def run_realtime_comment_closer(all_accounts, stop_event):
         stop_event.wait(8.0)
 
 # ==========================================
-# 4. FIXED GRAPH API SCRAPER & WEB FALLBACK
+# 4. PUBLIC WEB API SCRAPER & 6-ROUTE EXTRACTOR
 # ==========================================
 def extract_ig_handle(raw_entry):
     if not raw_entry:
@@ -353,7 +353,8 @@ def video_has_audio_stream(video_path):
 
 def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_history=False):
     """
-    Fixed Graph API scraper that strips illegal fields, plus web fallback if any handle is not a business account.
+    Directly scrapes public Reels from your 7 target accounts via Instagram's Web JSON API
+    (Zero Graph API permissions required, bypassing all app restrictions).
     """
     discovered = []
     seen_ids = set()
@@ -365,99 +366,49 @@ def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_hist
             clean_handles.append(h)
 
     random.shuffle(clean_handles)
-    scanner_pool = list(all_accounts)
-    random.shuffle(scanner_pool)
 
     for handle_clean in clean_handles:
-        log(f"[TARGET IG SCRAPER] Scanning @{handle_clean}...")
-        found_for_handle = False
+        log(f"[PUBLIC WEB SCRAPER] Fetching public Reels for @{handle_clean}...")
+        try:
+            web_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle_clean}"
+            headers = dict(BROWSER_HEADERS)
+            headers["X-IG-App-ID"] = "936619743392459"
+            headers["Referer"] = f"https://www.instagram.com/{handle_clean}/"
+            
+            r = requests.get(web_url, headers=headers, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                edges = data.get("data", {}).get("user", {}).get("edge_owner_to_timeline_media", {}).get("edges", [])
+                
+                if not edges:
+                    edges = data.get("data", {}).get("user", {}).get("edge_felix_video_timeline", {}).get("edges", [])
 
-        # METHOD 1: Clean Graph API business_discovery (forbidden media_product_type stripped)
-        for scanner_acc in scanner_pool[:3]:
-            try:
-                ig_user_id = scanner_acc["ig_user_id"]
-                token = scanner_acc["token"]
-                url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}"
-                fields = (
-                    f"business_discovery.username({handle_clean})"
-                    f"{{media.limit(30){{id,permalink,media_url,media_type,like_count,comments_count,children{{id,media_type,media_url}}}}}}"
-                )
-                r = requests.get(url, params={"fields": fields, "access_token": token}, timeout=15).json()
-
-                if "error" in r:
-                    err_msg = r["error"].get("message", "")
-                    log(f"[GRAPH NOTICE] @{handle_clean}: {err_msg}")
-                    continue
-
-                media_list = (((r.get("business_discovery") or {}).get("media") or {}).get("data")) or []
-                if not media_list:
-                    break
-
-                random.shuffle(media_list)
+                random.shuffle(edges)
                 count = 0
-                for m in media_list:
-                    m_type = m.get("media_type", "")
-                    permalink = m.get("permalink", "")
-                    media_url = m.get("media_url", "")
-
-                    if m_type == "CAROUSEL_ALBUM" and not media_url:
-                        children = ((m.get("children") or {}).get("data")) or []
-                        for child in children:
-                            if child.get("media_type") == "VIDEO" and child.get("media_url"):
-                                media_url = child.get("media_url")
-                                m_type = "VIDEO"
-                                break
-
-                    if m_type != "VIDEO":
+                for edge in edges:
+                    node = edge.get("node", {})
+                    if not node.get("is_video") and node.get("__typename") != "GraphVideo":
                         continue
-
-                    clean_perm, canonical_id = resolve_and_normalize_link(permalink)
-                    if not canonical_id:
-                        canonical_id = f"ig_{m.get('id', random.randint(10000,99999))}"
+                    
+                    shortcode = node.get("shortcode")
+                    if not shortcode:
+                        continue
+                        
+                    canonical_id = f"ig_{shortcode}"
                     if (not ignore_history and canonical_id in posted_history) or canonical_id in seen_ids:
                         continue
-
+                        
                     seen_ids.add(canonical_id)
-                    discovered.append((canonical_id, media_url, clean_perm or permalink, handle_clean))
+                    permalink = f"https://www.instagram.com/reel/{shortcode}/"
+                    media_url = node.get("video_url", "")
+                    
+                    discovered.append((canonical_id, media_url, permalink, handle_clean))
                     count += 1
-
-                if count > 0:
-                    log(f"[TARGET IG SCRAPER] -> Found {count} Reels via Graph API on @{handle_clean}")
-                    found_for_handle = True
-                    break
-            except Exception:
-                continue
-
-        # METHOD 2: Web API Fallback (runs if account is personal or Graph API returns 0)
-        if not found_for_handle:
-            try:
-                web_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle_clean}"
-                headers = dict(BROWSER_HEADERS)
-                headers["X-IG-App-ID"] = "936619743392459"
-                r = requests.get(web_url, headers=headers, timeout=12)
-                if r.status_code == 200:
-                    edges = r.json().get("data", {}).get("user", {}).get("edge_owner_to_timeline_media", {}).get("edges", [])
-                    random.shuffle(edges)
-                    w_count = 0
-                    for edge in edges:
-                        node = edge.get("node", {})
-                        if not node.get("is_video"):
-                            continue
-                        shortcode = node.get("shortcode")
-                        if not shortcode:
-                            continue
-                        canonical_id = f"ig_{shortcode}"
-                        if (not ignore_history and canonical_id in posted_history) or canonical_id in seen_ids:
-                            continue
-                        seen_ids.add(canonical_id)
-                        permalink = f"https://www.instagram.com/reel/{shortcode}/"
-                        media_url = node.get("video_url", "")
-                        discovered.append((canonical_id, media_url, permalink, handle_clean))
-                        w_count += 1
-                    if w_count > 0:
-                        log(f"[TARGET IG SCRAPER] -> Found {w_count} Reels via Web API on @{handle_clean}")
-            except Exception:
-                pass
+                
+                log(f"[PUBLIC WEB SCRAPER] -> Found {count} public Reels on @{handle_clean}")
+        except Exception as e:
+            log(f"[WEB SCRAPER NOTICE] Could not fetch @{handle_clean}: {e}")
+            continue
 
     with_direct_cdn = [x for x in discovered if x[1]]
     without_direct_cdn = [x for x in discovered if not x[1]]
@@ -465,7 +416,7 @@ def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_hist
     random.shuffle(without_direct_cdn)
 
     combined = with_direct_cdn + without_direct_cdn
-    log(f"[TARGET IG SCRAPER] Total randomized target pool: {len(combined)} Reels ({len(with_direct_cdn)} with direct CDN stream).")
+    log(f"[PUBLIC WEB SCRAPER] Total randomized target pool: {len(combined)} Reels.")
     return combined
 
 def download_instagram_reel_all_routes(clean_url, out_path):
@@ -593,7 +544,6 @@ def download_instagram_reel_all_routes(clean_url, out_path):
 def ingest_single_fresh_reel(all_accounts, posted_history, cached_ig_pool):
     os.makedirs(ASSETS_DIR, exist_ok=True)
 
-    # Priority 1: Manual links in reel_links.txt
     if os.path.exists(LINKS_FILE):
         try:
             with open(LINKS_FILE, "r", encoding="utf-8") as f:
@@ -613,7 +563,6 @@ def ingest_single_fresh_reel(all_accounts, posted_history, cached_ig_pool):
         except Exception:
             pass
 
-    # Priority 2: Target Instagram Accounts
     if not cached_ig_pool:
         cached_ig_pool.extend(scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_history=False))
         if not cached_ig_pool:
@@ -849,13 +798,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
 # ==========================================
 def upload_for_meta_download(file_path):
     headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Accept-Language": "en-US,en;q=0.9"}
-    try:
-        with open(file_path, "rb") as f:
-            res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
-        if res.status_code == 200 and res.text.strip().startswith("https://"):
-            return res.text.strip()
-    except Exception:
-        pass
     try:
         with open(file_path, "rb") as f:
             res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
