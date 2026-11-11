@@ -39,7 +39,7 @@ def ensure_edge_tts_installed():
             log(f"[OVERFLOW] edge-tts install skipped, continuing safely: {e}")
 
 # ==========================================
-# 1. CORE CONFIGURATION & STRICT TARGET IG ACCOUNTS ONLY
+# 1. CORE CONFIGURATION & TARGET ACCOUNTS
 # ==========================================
 META_TOKENS = [
     os.getenv("META_TOKEN_1"),
@@ -57,16 +57,12 @@ MIN_COOLDOWN_SECONDS = 10
 MAX_COOLDOWN_SECONDS = 28
 
 LINKS_FILE = "reel_links.txt"
-# Fresh ledger file so previously failed downloads are unlocked immediately
 HISTORY_FILE = "arc_ig_history.txt"
 REPLIED_COMMENTS_FILE = "replied_comments.txt"
 CURSOR_FILE = "account_cursor.txt"
 ASSETS_DIR = "assets"
 CUSTOM_FONT_PATH = "Montserrat-ExtraBold.ttf"
 
-# ==========================================
-# STRICTLY LOCKED TO YOUR TARGET IG ACCOUNTS ONLY (ZERO STOCK FALLBACKS)
-# ==========================================
 TARGET_IG_ACCOUNTS_TO_SCRAPE = [
     "https://www.instagram.com/worthy?utm_source=ig_web_button_share_sheet&rpxt=ZDNlZDc0MzIxNw==",
     "https://www.instagram.com/aureonlux?utm_source=ig_web_button_share_sheet&dlrf=ZDNlZDc0MzIxNw==",
@@ -85,7 +81,7 @@ BROWSER_HEADERS = {
 }
 
 # ==========================================
-# 2. HIGH-CONTRAST HOOKS (FIRST 58%) + SHORT TRUST PITCH & VOICEOVER (FINAL 42%)
+# 2. HIGH-CONTRAST HOOKS & TRUST PITCH
 # ==========================================
 ARC_FINAL_LINE_1 = "A R C  -  P R I V A T E   O N L I N E   I N C O M E   S Y S T E M"
 ARC_FINAL_LINE_2 = "F I N A L   S P O T S   C L O S I N G   ->   @ A R C B L O O D L I N E 3 0"
@@ -163,7 +159,7 @@ def generate_unique_caption_batch(count):
     return [f"{random.choice(pool)}{random.choice(micro_tags)}".strip() for _ in range(count)]
 
 # ==========================================
-# 3. REAL-TIME 8-SECOND AUTO-COMMENT & DM CLOSER DAEMON
+# 3. REAL-TIME 8-SECOND AUTO-COMMENT & DM CLOSER
 # ==========================================
 def run_realtime_comment_closer(all_accounts, stop_event):
     replied_ids = load_set_file(REPLIED_COMMENTS_FILE)
@@ -232,7 +228,7 @@ def run_realtime_comment_closer(all_accounts, stop_event):
         stop_event.wait(8.0)
 
 # ==========================================
-# 4. STRICT TARGET IG SCRAPER & 6-ROUTE REEL EXTRACTOR
+# 4. FIXED GRAPH API SCRAPER & WEB FALLBACK
 # ==========================================
 def extract_ig_handle(raw_entry):
     if not raw_entry:
@@ -357,8 +353,7 @@ def video_has_audio_stream(video_path):
 
 def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_history=False):
     """
-    Strictly scrapes ONLY your target Instagram accounts via Meta's Graph API business_discovery
-    (including VIDEO posts and CAROUSEL_ALBUM video slides) and randomizes the entire pool.
+    Fixed Graph API scraper that strips illegal fields, plus web fallback if any handle is not a business account.
     """
     discovered = []
     seen_ids = set()
@@ -374,18 +369,24 @@ def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_hist
     random.shuffle(scanner_pool)
 
     for handle_clean in clean_handles:
-        log(f"[TARGET IG SCRAPER] Scanning @{handle_clean} via Graph API...")
-        for scanner_acc in scanner_pool[:4]:
+        log(f"[TARGET IG SCRAPER] Scanning @{handle_clean}...")
+        found_for_handle = False
+
+        # METHOD 1: Clean Graph API business_discovery (forbidden media_product_type stripped)
+        for scanner_acc in scanner_pool[:3]:
             try:
                 ig_user_id = scanner_acc["ig_user_id"]
                 token = scanner_acc["token"]
                 url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}"
                 fields = (
                     f"business_discovery.username({handle_clean})"
-                    f"{{media.limit(45){{id,permalink,media_url,media_type,media_product_type,children{{media_url,media_type}}}}}}"
+                    f"{{media.limit(30){{id,permalink,media_url,media_type,like_count,comments_count,children{{id,media_type,media_url}}}}}}"
                 )
-                r = requests.get(url, params={"fields": fields, "access_token": token}, timeout=20).json()
+                r = requests.get(url, params={"fields": fields, "access_token": token}, timeout=15).json()
+
                 if "error" in r:
+                    err_msg = r["error"].get("message", "")
+                    log(f"[GRAPH NOTICE] @{handle_clean}: {err_msg}")
                     continue
 
                 media_list = (((r.get("business_discovery") or {}).get("media") or {}).get("data")) or []
@@ -393,13 +394,12 @@ def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_hist
                     break
 
                 random.shuffle(media_list)
-                handle_count = 0
+                count = 0
                 for m in media_list:
                     m_type = m.get("media_type", "")
                     permalink = m.get("permalink", "")
                     media_url = m.get("media_url", "")
 
-                    # Also check CAROUSEL_ALBUM children for embedded luxury video slides
                     if m_type == "CAROUSEL_ALBUM" and not media_url:
                         children = ((m.get("children") or {}).get("data")) or []
                         for child in children:
@@ -408,7 +408,7 @@ def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_hist
                                 m_type = "VIDEO"
                                 break
 
-                    if m_type != "VIDEO" and m.get("media_product_type") != "REELS":
+                    if m_type != "VIDEO":
                         continue
 
                     clean_perm, canonical_id = resolve_and_normalize_link(permalink)
@@ -419,31 +419,60 @@ def scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_hist
 
                     seen_ids.add(canonical_id)
                     discovered.append((canonical_id, media_url, clean_perm or permalink, handle_clean))
-                    handle_count += 1
+                    count += 1
 
-                log(f"[TARGET IG SCRAPER] Found {handle_count} Reels on @{handle_clean}")
-                break
+                if count > 0:
+                    log(f"[TARGET IG SCRAPER] -> Found {count} Reels via Graph API on @{handle_clean}")
+                    found_for_handle = True
+                    break
             except Exception:
                 continue
 
-    # Prioritise entries that already include a direct Graph API CDN media_url, while keeping selection random
+        # METHOD 2: Web API Fallback (runs if account is personal or Graph API returns 0)
+        if not found_for_handle:
+            try:
+                web_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle_clean}"
+                headers = dict(BROWSER_HEADERS)
+                headers["X-IG-App-ID"] = "936619743392459"
+                r = requests.get(web_url, headers=headers, timeout=12)
+                if r.status_code == 200:
+                    edges = r.json().get("data", {}).get("user", {}).get("edge_owner_to_timeline_media", {}).get("edges", [])
+                    random.shuffle(edges)
+                    w_count = 0
+                    for edge in edges:
+                        node = edge.get("node", {})
+                        if not node.get("is_video"):
+                            continue
+                        shortcode = node.get("shortcode")
+                        if not shortcode:
+                            continue
+                        canonical_id = f"ig_{shortcode}"
+                        if (not ignore_history and canonical_id in posted_history) or canonical_id in seen_ids:
+                            continue
+                        seen_ids.add(canonical_id)
+                        permalink = f"https://www.instagram.com/reel/{shortcode}/"
+                        media_url = node.get("video_url", "")
+                        discovered.append((canonical_id, media_url, permalink, handle_clean))
+                        w_count += 1
+                    if w_count > 0:
+                        log(f"[TARGET IG SCRAPER] -> Found {w_count} Reels via Web API on @{handle_clean}")
+            except Exception:
+                pass
+
     with_direct_cdn = [x for x in discovered if x[1]]
     without_direct_cdn = [x for x in discovered if not x[1]]
     random.shuffle(with_direct_cdn)
     random.shuffle(without_direct_cdn)
 
     combined = with_direct_cdn + without_direct_cdn
-    log(f"[TARGET IG SCRAPER] Total randomized target pool: {len(combined)} Reels ({len(with_direct_cdn)} with direct Graph CDN stream).")
+    log(f"[TARGET IG SCRAPER] Total randomized target pool: {len(combined)} Reels ({len(with_direct_cdn)} with direct CDN stream).")
     return combined
 
 def download_instagram_reel_all_routes(clean_url, out_path):
-    """
-    6-Route Extractor for Instagram Reels when Meta omits media_url due to copyrighted audio.
-    """
     ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', clean_url)
     shortcode = ig_match.group(1) if ig_match else ""
 
-    # Route 1: Instagram Public GraphQL doc_id query (No login required)
+    # Route 1: Instagram Public GraphQL doc_id query
     if shortcode:
         for doc_id in ["8845758582119845", "10015901848480474"]:
             try:
@@ -472,7 +501,7 @@ def download_instagram_reel_all_routes(clean_url, out_path):
             except Exception:
                 pass
 
-    # Route 2: Instagram /embed/captioned/ & /embed/ parser
+    # Route 2: Instagram /embed/captioned/ parser
     if shortcode:
         for suffix in ["embed/captioned/", "embed/"]:
             try:
@@ -511,18 +540,17 @@ def download_instagram_reel_all_routes(clean_url, out_path):
         except Exception:
             pass
 
-    # Route 4: Direct ddinstagram / kkinstagram proxy
-    for domain in ["d.ddinstagram.com", "kkinstagram.com"]:
-        try:
-            proxy_url = clean_url.replace("www.instagram.com", domain)
-            r = requests.get(proxy_url, headers=BROWSER_HEADERS, allow_redirects=True, timeout=20)
-            if r.status_code == 200 and len(r.content) > 100000 and "video" in r.headers.get("Content-Type", "").lower():
-                with open(out_path, "wb") as f:
-                    f.write(r.content)
-                if verify_video_has_real_frames(out_path):
-                    return True
-        except Exception:
-            pass
+    # Route 4: Direct ddinstagram proxy
+    try:
+        proxy_url = clean_url.replace("www.instagram.com", "d.ddinstagram.com")
+        r = requests.get(proxy_url, headers=BROWSER_HEADERS, allow_redirects=True, timeout=20)
+        if r.status_code == 200 and len(r.content) > 100000 and "video" in r.headers.get("Content-Type", "").lower():
+            with open(out_path, "wb") as f:
+                f.write(r.content)
+            if verify_video_has_real_frames(out_path):
+                return True
+    except Exception:
+        pass
 
     # Route 5: TikWM Universal Extractor
     try:
@@ -563,13 +591,9 @@ def download_instagram_reel_all_routes(clean_url, out_path):
     return False
 
 def ingest_single_fresh_reel(all_accounts, posted_history, cached_ig_pool):
-    """
-    Strictly downloads ONLY from reel_links.txt or TARGET_IG_ACCOUNTS_TO_SCRAPE.
-    Never marks a Reel as used in HISTORY_FILE unless the video file actually downloads and passes verification.
-    """
     os.makedirs(ASSETS_DIR, exist_ok=True)
 
-    # LAYER 1: Manual Queue in reel_links.txt (if you drop specific links)
+    # Priority 1: Manual links in reel_links.txt
     if os.path.exists(LINKS_FILE):
         try:
             with open(LINKS_FILE, "r", encoding="utf-8") as f:
@@ -589,16 +613,14 @@ def ingest_single_fresh_reel(all_accounts, posted_history, cached_ig_pool):
         except Exception:
             pass
 
-    # LAYER 2: Your Locked Target Instagram Accounts ONLY
+    # Priority 2: Target Instagram Accounts
     if not cached_ig_pool:
         cached_ig_pool.extend(scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_history=False))
-        # If all Reels across the 7 accounts were already used, recycle randomly from the 7 accounts instead of touching external videos
         if not cached_ig_pool:
-            log("[TARGET IG SCRAPER] All fresh Reels on target accounts used once — recycling randomly from your 7 target accounts!")
+            log("[TARGET IG SCRAPER] Recycling Reels from your target accounts...")
             cached_ig_pool.extend(scrape_target_ig_accounts_randomly(all_accounts, posted_history, ignore_history=True))
 
     while cached_ig_pool:
-        # Pop from the front so direct-CDN-stream items (already shuffled) are tried first
         canonical_id, media_url, permalink, source_handle = cached_ig_pool.pop(0)
         full_path = os.path.join(ASSETS_DIR, f"{canonical_id}_{random.randint(100,999)}.mp4")
         downloaded = False
@@ -616,7 +638,6 @@ def ingest_single_fresh_reel(all_accounts, posted_history, cached_ig_pool):
         if not downloaded and permalink:
             downloaded = download_instagram_reel_all_routes(permalink, full_path)
 
-        # CRITICAL FIX: Only record in HISTORY_FILE if download succeeded!
         if downloaded:
             append_to_set_file(HISTORY_FILE, canonical_id, posted_history)
             log(f"[LOCKED TARGET REEL] Downloaded {canonical_id} from @{source_handle}")
@@ -625,7 +646,7 @@ def ingest_single_fresh_reel(all_accounts, posted_history, cached_ig_pool):
     return None
 
 # ==========================================
-# 5. INSTAGRAM GRAPH API ACCOUNT DISCOVERY
+# 5. GRAPH API ACCOUNT DISCOVERY
 # ==========================================
 def get_connected_instagram_accounts(token):
     url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/accounts"
@@ -653,7 +674,7 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 6. FAULT-TOLERANT 4K HYPER-LOOP + HOOK + VOICEOVER ENGINE
+# 6. 4K MUTATION & NEURAL VOICEOVER ENGINE
 # ==========================================
 def ensure_custom_font():
     if os.path.exists(CUSTOM_FONT_PATH) and os.path.getsize(CUSTOM_FONT_PATH) > 10000:
@@ -824,10 +845,17 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     return output_path
 
 # ==========================================
-# 7. MULTI-HOST RELAY UPLOAD & GRAPH API PUBLISH
+# 7. RELAY UPLOAD & GRAPH API PUBLISH
 # ==========================================
 def upload_for_meta_download(file_path):
     headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Accept-Language": "en-US,en;q=0.9"}
+    try:
+        with open(file_path, "rb") as f:
+            res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
+        if res.status_code == 200 and res.text.strip().startswith("https://"):
+            return res.text.strip()
+    except Exception:
+        pass
     try:
         with open(file_path, "rb") as f:
             res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 75))
@@ -898,7 +926,7 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
     log(f"[SUCCESS] PUBLISHED LIVE! Media ID: {publish_res['id']}")
 
 # ==========================================
-# 8. MAIN EXECUTION (STRICT TARGET ACCOUNTS ONLY)
+# 8. MAIN EXECUTION
 # ==========================================
 def main():
     log("=== ARC STRICT TARGET-IG ENGINE & 8-SECOND CLOSER STARTED ===")
@@ -952,7 +980,7 @@ def main():
                     current_video = ingest_single_fresh_reel(all_accounts, posted_history, cached_ig_pool)
 
                 if not current_video or not os.path.exists(current_video):
-                    log(f"[OVERFLOW] Could not pull a target IG Reel for {acc['page_name']}, skipping node (ZERO stock fallback)...")
+                    log(f"[OVERFLOW] Could not pull a target IG Reel for {acc['page_name']}, skipping node...")
                     continue
 
                 mutate_video_for_account(current_video, mutated_output, font_path, node_idx=index)
@@ -992,5 +1020,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as fatal_err:
-        log(f"[GLOBAL OVERFLOW] Caught top-level exception so GitHub workflow still saves state: {fatal_err}")
+        log(f"[GLOBAL OVERFLOW] Exception caught: {fatal_err}")
         sys.exit(0)
