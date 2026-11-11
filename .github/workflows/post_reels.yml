@@ -48,5 +48,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "ARC Fleet Engine"
           touch posted_history.txt account_cursor.txt replied_comments.txt reel_links.txt
-          git add posted_history.txt account_cursor.txt replied_comments.txt reel_links.txt
-          git diff --staged --quiet || (git commit -m "chore: update ARC wave ledger" && git pull --rebase origin main && git push origin main)
+         touch arc_ig_history.txt account_cursor.txt replied_comments.txt reel_links.txt
+          git add arc_ig_history.txt account_cursor.txt replied_comments.txt reel_links.txt
