@@ -17,26 +17,14 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def ensure_edge_tts_installed():
-    """Automatically installs edge-tts on the runner if not already present."""
     try:
-        subprocess.run(
-            ["edge-tts", "--version"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=True
-        )
+        subprocess.run(["edge-tts", "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=True)
     except Exception:
         log("[INIT] Installing edge-tts for realistic neural voiceover...")
         try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-q", "edge-tts"],
-                stdin=subprocess.DEVNULL,
-                timeout=60
-            )
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "edge-tts"], stdin=subprocess.DEVNULL, timeout=60)
         except Exception as e:
-            log(f"[OVERFLOW] edge-tts install skipped, continuing safely: {e}")
+            log(f"[OVERFLOW] edge-tts install skipped: {e}")
 
 # ==========================================
 # 1. CORE CONFIGURATION & TARGET ACCOUNTS
@@ -47,17 +35,12 @@ META_TOKENS = [
 ]
 
 ARC_DIRECT_LINK = os.getenv("ARC_JOIN_LINK", "https://www.instagram.com/arcbloodline30/")
-
 GRAPH_API_VERSION = "v20.0"
-
 ACCOUNTS_PER_WAVE = 12
-
 MIN_COOLDOWN_SECONDS = 10
 MAX_COOLDOWN_SECONDS = 28
 
 LINKS_FILE = "reel_links.txt"
-# Stores per-account history as "{ig_user_id}:{reel_id}" so an account never repeats a Reel,
-# while other accounts that haven't posted it yet can still randomly pick and post it.
 HISTORY_FILE = "arc_ig_history.txt"
 REPLIED_COMMENTS_FILE = "replied_comments.txt"
 CURSOR_FILE = "account_cursor.txt"
@@ -81,9 +64,9 @@ BROWSER_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9"
 }
 
-DISCORD_BOT_HEADERS = {
+BOT_EMBED_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    "Accept": "*/*"
 }
 
 # ==========================================
@@ -101,10 +84,10 @@ ARC_VOICEOVER_SCRIPTS = [
 ]
 
 HOOK_HIGH_CONTRAST_COLORS = [
-    "0xFFE600",  # Signal Yellow
-    "0x00F5D4",  # Electric Cyan
-    "0xFF3B30",  # Alert Crimson
-    "0x00FF66"   # Matrix Neon Green
+    "0xFFE600",
+    "0x00F5D4",
+    "0xFF3B30",
+    "0x00FF66"
 ]
 
 ARC_TOP_HOOKS = [
@@ -170,7 +153,6 @@ def generate_unique_caption_batch(count):
 def run_realtime_comment_closer(all_accounts, stop_event):
     replied_ids = load_set_file(REPLIED_COMMENTS_FILE)
     log("[REAL-TIME CLOSER] 8-second Instant Comment-to-DM Daemon ACTIVE across all accounts.")
-
     while not stop_event.is_set():
         for acc in all_accounts:
             if stop_event.is_set():
@@ -179,15 +161,9 @@ def run_realtime_comment_closer(all_accounts, stop_event):
             page_token = acc.get("page_token") or acc.get("token")
             user_token = acc.get("token")
             own_username = (acc.get("ig_username") or "").lower()
-
             try:
                 media_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_id}/media"
-                m_res = requests.get(
-                    media_url,
-                    params={"fields": "id,comments.limit(10){id,text,username}", "limit": 5, "access_token": user_token},
-                    timeout=10
-                ).json()
-
+                m_res = requests.get(media_url, params={"fields": "id,comments.limit(10){id,text,username}", "limit": 5, "access_token": user_token}, timeout=10).json()
                 for media in m_res.get("data", []):
                     comments = (media.get("comments") or {}).get("data") or []
                     for c in comments:
@@ -195,17 +171,11 @@ def run_realtime_comment_closer(all_accounts, stop_event):
                         c_user = str(c.get("username", "")).lower()
                         if not cid or cid in replied_ids or (own_username and c_user == own_username):
                             continue
-
                         reply_text = f"@{c.get('username', '')} Sent you the private access link. You can also enter ARC directly via @ARCBLOODLINE30 bio ⚡"
                         try:
-                            requests.post(
-                                f"https://graph.facebook.com/{GRAPH_API_VERSION}/{cid}/replies",
-                                data={"message": reply_text, "access_token": user_token},
-                                timeout=10
-                            )
+                            requests.post(f"https://graph.facebook.com/{GRAPH_API_VERSION}/{cid}/replies", data={"message": reply_text, "access_token": user_token}, timeout=10)
                         except Exception:
                             pass
-
                         dm_payload = {
                             "recipient": {"comment_id": cid},
                             "message": {
@@ -217,39 +187,25 @@ def run_realtime_comment_closer(all_accounts, stop_event):
                             }
                         }
                         try:
-                            requests.post(
-                                f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/messages",
-                                params={"access_token": page_token},
-                                json=dm_payload,
-                                timeout=10
-                            )
+                            requests.post(f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/messages", params={"access_token": page_token}, json=dm_payload, timeout=10)
                         except Exception:
                             pass
-
                         append_to_set_file(REPLIED_COMMENTS_FILE, cid, replied_ids)
                         log(f"[INSTANT CLOSE] Auto-Replied & DM'd @{c_user} on {acc.get('page_name', 'Node')}!")
             except Exception:
                 pass
-
         stop_event.wait(8.0)
 
 # ==========================================
-# 4. LIGHTWEIGHT ONCE-PER-WAVE SCRAPER & PER-ACCOUNT RANDOM PICKER
+# 4. ONCE-PER-WAVE SCRAPER & PER-ACCOUNT RANDOM PICKER
 # ==========================================
 def unescape_ig_payload(raw_text):
-    """Unescapes Instagram HTML/JSON backslashes so regexes never truncate video URLs."""
     if not raw_text:
         return ""
-    return (
-        raw_text.replace(r"\\/", "/")
-        .replace(r"\/", "/")
-        .replace(r"\\u0026", "&")
-        .replace(r"\u0026", "&")
-        .replace(r'\\"', '"')
-        .replace(r'\"', '"')
-        .replace("&quot;", '"')
-        .replace("&amp;", "&")
-    )
+    s = raw_text.replace(r"\\/", "/").replace(r"\/", "/")
+    s = s.replace(r"\\u0026", "&").replace(r"\u0026", "&")
+    s = s.replace(r'\\"', '"').replace(r'\"', '"')
+    return s.replace("&quot;", '"').replace("&amp;", "&")
 
 def extract_ig_handle(raw_entry):
     if not raw_entry:
@@ -272,16 +228,13 @@ def resolve_and_normalize_link(raw_line):
     if not match:
         return None, None
     url = match.group(1).strip()
-
     parsed = urllib.parse.urlparse(url)
     host = parsed.netloc.lower().replace("m.instagram.com", "www.instagram.com")
     path = parsed.path.rstrip("/")
-
     ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', path)
     if "instagram.com" in host and ig_match:
         shortcode = ig_match.group(1)
         return f"https://www.instagram.com/reel/{shortcode}/", f"ig_{shortcode}"
-
     clean_url = f"{parsed.scheme}://{host}{path}"
     return clean_url, clean_url
 
@@ -316,7 +269,6 @@ def select_round_robin_accounts(all_accounts, batch_size):
                 start_idx = int(f.read().strip()) % total
         except Exception:
             start_idx = 0
-
     selected = [sorted_accs[(start_idx + i) % total] for i in range(min(batch_size, total))]
     next_cursor = (start_idx + len(selected)) % total
     try:
@@ -324,19 +276,15 @@ def select_round_robin_accounts(all_accounts, batch_size):
             f.write(str(next_cursor))
     except Exception:
         pass
-
     random.shuffle(selected)
     log(f"[ROUND-ROBIN] Cursor {start_idx} -> {next_cursor} (Selected & randomized {len(selected)}/{total} accounts).")
     return selected
 
 def verify_video_has_real_frames(video_path):
-    if not os.path.exists(video_path) or os.path.getsize(video_path) < 70000:
+    if not os.path.exists(video_path) or os.path.getsize(video_path) < 65000:
         return False
     try:
-        cmd = [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path
-        ]
+        cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path]
         res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
         dims = res.stdout.decode("utf-8").strip().split("x")
         return int(dims[0]) >= 320 and int(dims[1]) >= 320
@@ -345,25 +293,92 @@ def verify_video_has_real_frames(video_path):
 
 def video_has_audio_stream(video_path):
     try:
-        cmd = [
-            "ffprobe", "-v", "error", "-select_streams", "a",
-            "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path
-        ]
+        cmd = ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path]
         res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
         return len(res.stdout.decode("utf-8").strip()) > 0
     except Exception:
         return False
 
+def save_and_verify_stream(raw_url, out_path, headers=None):
+    if not raw_url or not raw_url.startswith("http"):
+        return False
+    req_headers = headers or BROWSER_HEADERS
+    try:
+        r = requests.get(raw_url, headers=req_headers, allow_redirects=True, timeout=25)
+        if r.status_code == 200 and len(r.content) > 65000:
+            with open(out_path, "wb") as f:
+                f.write(r.content)
+            return verify_video_has_real_frames(out_path)
+    except Exception:
+        pass
+    return False
+
+def harvest_handle_via_embed(handle, seen_shortcodes, catalog):
+    count = 0
+    embed_urls = [
+        f"https://www.instagram.com/{handle}/embed/",
+        f"https://www.instagram.com/{handle}/embed/captioned/"
+    ]
+    for embed_url in embed_urls:
+        try:
+            r = requests.get(embed_url, headers=BROWSER_HEADERS, timeout=15)
+            if r.status_code == 200 and len(r.text) > 500:
+                clean_html = unescape_ig_payload(r.text)
+                pair_pattern = r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"[^{}]*?"video_url"\s*:\s*"(https?://[^"]+)"'
+                for match in re.finditer(pair_pattern, clean_html):
+                    sc = match.group(1)
+                    v_url = match.group(2)
+                    cid = f"ig_{sc}"
+                    if cid not in seen_shortcodes:
+                        seen_shortcodes.add(cid)
+                        catalog.append((cid, v_url, f"https://www.instagram.com/reel/{sc}/", handle))
+                        count += 1
+                shortcodes = re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean_html)
+                shortcodes += re.findall(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})/', clean_html)
+                for sc in shortcodes:
+                    if sc in ("embed", "captioned", handle):
+                        continue
+                    cid = f"ig_{sc}"
+                    if cid not in seen_shortcodes:
+                        seen_shortcodes.add(cid)
+                        catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
+                        count += 1
+            if count > 0:
+                break
+        except Exception:
+            continue
+    return count
+
+def harvest_handle_via_jina_and_search(handle, seen_shortcodes, catalog):
+    count = 0
+    proxy_urls = [
+        f"https://r.jina.ai/https://www.instagram.com/{handle}/reels/",
+        f"https://r.jina.ai/https://www.instagram.com/{handle}/",
+        f"https://html.duckduckgo.com/html/?q=site:instagram.com/reel+{handle}"
+    ]
+    for p_url in proxy_urls:
+        try:
+            r = requests.get(p_url, headers=BROWSER_HEADERS, timeout=15)
+            if r.status_code == 200 and len(r.text) > 200:
+                clean_text = unescape_ig_payload(r.text)
+                scs = re.findall(r'instagram\.com/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})', clean_text)
+                for sc in scs:
+                    if sc in ("embed", "captioned", handle):
+                        continue
+                    cid = f"ig_{sc}"
+                    if cid not in seen_shortcodes:
+                        seen_shortcodes.add(cid)
+                        catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
+                        count += 1
+            if count > 0:
+                break
+        except Exception:
+            continue
+    return count
+
 def build_master_reel_catalog_once():
-    """
-    Runs ONCE at the start of the wave.
-    Uses Instagram's public /embed/ profile endpoint (works from GitHub Actions IPs without login)
-    plus manual reel_links.txt to build a master pool of Reels from your target accounts.
-    """
     catalog = []
     seen_shortcodes = set()
-
-    # 1. Include any manual links from reel_links.txt
     if os.path.exists(LINKS_FILE):
         try:
             with open(LINKS_FILE, "r", encoding="utf-8") as f:
@@ -374,157 +389,74 @@ def build_master_reel_catalog_once():
                         catalog.append((cid, "", clean_u, "reel_links.txt"))
         except Exception:
             pass
-
     clean_handles = []
     for raw in TARGET_IG_ACCOUNTS_TO_SCRAPE:
         h = extract_ig_handle(raw)
         if h and h not in clean_handles:
             clean_handles.append(h)
-
     random.shuffle(clean_handles)
-
     for handle in clean_handles:
-        handle_count = 0
+        c1 = harvest_handle_via_embed(handle, seen_shortcodes, catalog)
+        c2 = 0
+        if c1 == 0:
+            c2 = harvest_handle_via_jina_and_search(handle, seen_shortcodes, catalog)
+        log(f"[CATALOG] Pulled {c1 + c2} items from @{handle}")
+    with_cdn = [x for x in catalog if x[1]]
+    without_cdn = [x for x in catalog if not x[1]]
+    random.shuffle(with_cdn)
+    random.shuffle(without_cdn)
+    combined = with_cdn + without_cdn
+    log(f"[CATALOG READY] Total unique items across target accounts: {len(combined)} ({len(with_cdn)} with direct stream)")
+    return combined
 
-        # Route A: Public Profile /embed/ page (Never blocked on GitHub Actions IPs)
-        for embed_url in [
-            f"https://www.instagram.com/{handle}/embed/",
-            f"https://www.instagram.com/{handle}/embed/captioned/"
-        ]:
-            try:
-                r = requests.get(embed_url, headers=BROWSER_HEADERS, timeout=15)
-                if r.status_code == 200 and len(r.text) > 500:
-                    clean_html = unescape_ig_payload(r.text)
-
-                    # Extract pairs of shortcode + direct video_url if embedded in contextJSON
-                    for match in re.finditer(
-                        r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"[^{}]*?"video_url"\s*:\s*"(https?://[^"]+)"',
-                        clean_html
-                    ):
-                        sc, v_url = match.group(1), match.group(2)
-                        cid = f"ig_{sc}"
-                        if cid not in seen_shortcodes:
-                            seen_shortcodes.add(cid)
-                            catalog.append((cid, v_url, f"https://www.instagram.com/reel/{sc}/", handle))
-                            handle_count += 1
-
-                    # Extract all post/reel shortcodes on the profile embed grid
-                    shortcodes = re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean_html)
-                    shortcodes += re.findall(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})/', clean_html)
-
-                    for sc in shortcodes:
-                        if sc in ("embed", "captioned", handle):
-                            continue
-                        cid = f"ig_{sc}"
-                        if cid not in seen_shortcodes:
-                            seen_shortcodes.add(cid)
-                            catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
-                            handle_count += 1
-
-                if handle_count > 0:
-                    break
-            except Exception:
-                continue
-
-        # Route B: Secondary Web Profile API check if /embed/ returned 0
-        if handle_count == 0:
-            try:
-                web_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
-                headers = dict(BROWSER_HEADERS)
-                headers["X-IG-App-ID"] = "936619743392459"
-                headers["Referer"] = f"https://www.instagram.com/{handle}/"
-                r = requests.get(web_url, headers=headers, timeout=12)
-                if r.status_code == 200:
-                    clean_json = unescape_ig_payload(r.text)
-                    for sc in re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean_json):
-                        cid = f"ig_{sc}"
-                        if cid not in seen_shortcodes:
-                            seen_shortcodes.add(cid)
-                            catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
-                            handle_count += 1
-            except Exception:
-                pass
-
-        log(f"[CATALOG] Pulled {handle_count} items from @{handle}")
-
-    random.shuffle(catalog)
-    log(f"[CATALOG READY] Total unique items across target accounts: {len(catalog)}")
-    return catalog
-
-def download_instagram_reel_all_routes(clean_url, out_path):
-    ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', clean_url)
-    shortcode = ig_match.group(1) if ig_match else ""
-    if not shortcode:
-        return False
-
-    # Route 1: Unescaped Instagram /embed/captioned/ & /embed/ parser (Fixes the https: truncation bug)
-    for path_prefix in ["reel", "p"]:
+def try_route_embed_page(shortcode, out_path):
+    for prefix in ["reel", "p"]:
         for suffix in ["embed/captioned/", "embed/"]:
+            embed_url = f"https://www.instagram.com/{prefix}/{shortcode}/{suffix}"
             try:
-                embed_url = f"https://www.instagram.com/{path_prefix}/{shortcode}/{suffix}"
                 r = requests.get(embed_url, headers=BROWSER_HEADERS, timeout=15)
                 if r.status_code == 200 and len(r.text) > 500:
                     clean_html = unescape_ig_payload(r.text)
-                    video_urls = re.findall(r'"video_url"\s*:\s*"(https?://[^"]+)"', clean_html)
-                    video_urls += re.findall(r'"contentUrl"\s*:\s*"(https?://[^"]+)"', clean_html)
-                    video_urls += re.findall(r'<meta[^>]+property="og:video"[^>]+content="(https?://[^"]+)"', clean_html)
-for raw_cdn in video_urls:
-                        if ".mp4" in raw_cdn or "cdninstagram.com" in raw_cdn or "fbcdn.net" in raw_cdn:
-                            vid_res = requests.get(raw_cdn, headers=BROWSER_HEADERS, timeout=25)
-                            if vid_res.status_code == 200 and len(vid_res.content) > 70000:
-                                with open(out_path, "wb") as f:
-                                    f.write(vid_res.content)
-                                if verify_video_has_real_frames(out_path):
-                                    return True
+                    urls = re.findall(r'"video_url"\s*:\s*"(https?://[^"]+)"', clean_html)
+                    urls += re.findall(r'"contentUrl"\s*:\s*"(https?://[^"]+)"', clean_html)
+                    urls += re.findall(r'<meta[^>]+property="og:video"[^>]+content="(https?://[^"]+)"', clean_html)
+                    for u in urls:
+                        if save_and_verify_stream(u, out_path):
+                            return True
             except Exception:
                 pass
+    return False
 
-    # Route 2: Discordbot Embed Fixers (vxinstagram / ddinstagram / kkinstagram)
+def try_route_bot_proxies(shortcode, out_path):
     for host in ["www.vxinstagram.com", "d.ddinstagram.com", "www.ddinstagram.com", "www.kkinstagram.com"]:
+        proxy_url = f"https://{host}/reel/{shortcode}"
         try:
-            proxy_url = f"https://{host}/reel/{shortcode}"
-            r = requests.get(proxy_url, headers=DISCORD_BOT_HEADERS, allow_redirects=True, timeout=18)
+            r = requests.get(proxy_url, headers=BOT_EMBED_HEADERS, allow_redirects=True, timeout=18)
             if r.status_code == 200:
-                if len(r.content) > 70000 and "video" in r.headers.get("Content-Type", "").lower():
+                if len(r.content) > 65000 and "video" in r.headers.get("Content-Type", "").lower():
                     with open(out_path, "wb") as f:
                         f.write(r.content)
                     if verify_video_has_real_frames(out_path):
                         return True
-                else:
-                    clean_html = unescape_ig_payload(r.text)
-                    og_matches = re.findall(
-                        r'<meta[^>]+property="og:video(?::secure_url)?"[^>]+content="(https?://[^"]+)"',
-                        clean_html
-                    )
-                    for og_url in og_matches:
-                        vid_res = requests.get(og_url, headers=BROWSER_HEADERS, allow_redirects=True, timeout=25)
-                        if vid_res.status_code == 200 and len(vid_res.content) > 70000:
-                            with open(out_path, "wb") as f:
-                                f.write(vid_res.content)
-                            if verify_video_has_real_frames(out_path):
-                                return True
+                clean_html = unescape_ig_payload(r.text)
+                og_urls = re.findall(r'<meta[^>]+property="og:video(?::secure_url)?"[^>]+content="(https?://[^"]+)"', clean_html)
+                for og_u in og_urls:
+                    if save_and_verify_stream(og_u, out_path):
+                        return True
         except Exception:
             pass
-
-    # Route 3: vxinstagram JSON API
     try:
         vx_api = f"https://api.vxinstagram.com/reel/{shortcode}"
-        r = requests.get(vx_api, headers=DISCORD_BOT_HEADERS, timeout=15)
+        r = requests.get(vx_api, headers=BOT_EMBED_HEADERS, timeout=15)
         if r.status_code == 200 and r.text.strip().startswith("{"):
-            data = r.json()
-            for m in data.get("media_extended") or []:
-                v_url = m.get("url")
-                if v_url and v_url.startswith("http"):
-                    vid_res = requests.get(v_url, headers=BROWSER_HEADERS, timeout=25)
-                    if vid_res.status_code == 200 and len(vid_res.content) > 70000:
-                        with open(out_path, "wb") as f:
-                            f.write(vid_res.content)
-                        if verify_video_has_real_frames(out_path):
-                            return True
+            for m in r.json().get("media_extended") or []:
+                if save_and_verify_stream(m.get("url", ""), out_path):
+                    return True
     except Exception:
         pass
+    return False
 
-    # Route 4: Instagram GraphQL doc_id query (with full unescaping)
+def try_route_graphql_and_ytdlp(shortcode, clean_url, out_path):
     for doc_id in ["8845758582119845", "10015901848480474"]:
         try:
             gql_headers = {
@@ -539,16 +471,10 @@ for raw_cdn in video_urls:
             if r.status_code == 200 and "video_url" in r.text:
                 clean_json = unescape_ig_payload(r.text)
                 for raw_cdn in re.findall(r'"video_url"\s*:\s*"(https?://[^"]+)"', clean_json):
-                    vid_res = requests.get(raw_cdn, headers=BROWSER_HEADERS, timeout=25)
-                    if vid_res.status_code == 200 and len(vid_res.content) > 70000:
-                        with open(out_path, "wb") as f:
-                            f.write(vid_res.content)
-                        if verify_video_has_real_frames(out_path):
-                            return True
+                    if save_and_verify_stream(raw_cdn, out_path):
+                        return True
         except Exception:
             pass
-
-    # Route 5: yt-dlp Mobile Extractor
     ydl_opts = {
         "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "outtmpl": out_path,
@@ -565,66 +491,53 @@ for raw_cdn in video_urls:
             return True
     except Exception:
         pass
+    return False
 
+def download_instagram_reel_all_routes(clean_url, out_path):
+    ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', clean_url)
+    shortcode = ig_match.group(1) if ig_match else ""
+    if not shortcode:
+        return False
+    if try_route_embed_page(shortcode, out_path):
+        return True
+    if try_route_bot_proxies(shortcode, out_path):
+        return True
+    if try_route_graphql_and_ytdlp(shortcode, clean_url, out_path):
+        return True
     return False
 
 def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, downloaded_cache, non_video_shortcodes, used_in_wave):
-    """
-    Randomly chooses a Reel for `ig_user_id` that `ig_user_id` has NEVER posted before.
-    Other accounts that haven't posted that Reel CAN still pick and post it.
-    Caches downloaded source files in `downloaded_cache` so the script never scrapes too hard.
-    """
     os.makedirs(ASSETS_DIR, exist_ok=True)
-
-    # Filter catalog to items this specific account has NOT posted yet (and skip known photo posts)
     eligible = [
         item for item in master_catalog
         if item[0] not in non_video_shortcodes and f"{ig_user_id}:{item[0]}" not in posted_history
     ]
-
-    # If this account has somehow posted every single Reel in the catalog, allow full catalog pool
     if not eligible:
         eligible = [item for item in master_catalog if item[0] not in non_video_shortcodes]
-
-    # Prefer Reels not yet used in this wave first, then any eligible Reel for this account
-    fresh_for_wave = [item for item in eligible if item[0] not in used_in_wave]
-    already_in_wave = [item for item in eligible if item[0] in used_in_wave]
-    random.shuffle(fresh_for_wave)
-    random.shuffle(already_in_wave)
-    candidates = fresh_for_wave + already_in_wave
-
+    fresh_with_cdn = [item for item in eligible if item[0] not in used_in_wave and item[1]]
+    fresh_no_cdn = [item for item in eligible if item[0] not in used_in_wave and not item[1]]
+    used_already = [item for item in eligible if item[0] in used_in_wave]
+    random.shuffle(fresh_with_cdn)
+    random.shuffle(fresh_no_cdn)
+    random.shuffle(used_already)
+    candidates = fresh_with_cdn + fresh_no_cdn + used_already
     for canonical_id, media_url, permalink, source_handle in candidates:
-        # If already downloaded during this run, reuse the clean local master file
         if canonical_id in downloaded_cache and os.path.exists(downloaded_cache[canonical_id]):
             used_in_wave.add(canonical_id)
-            log(f"[RANDOM PICK] Selected {canonical_id} (from @{source_handle}) for account {ig_user_id}")
+            log(f"[RANDOM PICK] Selected cached {canonical_id} (from @{source_handle}) for {ig_user_id}")
             return canonical_id, downloaded_cache[canonical_id]
-
         full_path = os.path.join(ASSETS_DIR, f"master_{canonical_id}.mp4")
         downloaded = False
-
         if media_url:
-            try:
-                r = requests.get(media_url, headers=BROWSER_HEADERS, timeout=25)
-                if r.status_code == 200 and len(r.content) > 70000:
-                    with open(full_path, "wb") as f:
-                        f.write(r.content)
-                    downloaded = verify_video_has_real_frames(full_path)
-            except Exception:
-                downloaded = False
-
+            downloaded = save_and_verify_stream(media_url, full_path)
         if not downloaded and permalink:
             downloaded = download_instagram_reel_all_routes(permalink, full_path)
-
         if downloaded:
             downloaded_cache[canonical_id] = full_path
             used_in_wave.add(canonical_id)
-            log(f"[RANDOM PICK] Downloaded & locked {canonical_id} (from @{source_handle}) for account {ig_user_id}")
+            log(f"[RANDOM PICK] Downloaded & locked {canonical_id} (from @{source_handle}) for {ig_user_id}")
             return canonical_id, full_path
-        else:
-            # Mark shortcode as non-video/unavailable for this run so no other node wastes time on it
-            non_video_shortcodes.add(canonical_id)
-
+        non_video_shortcodes.add(canonical_id)
     return None, None
 
 # ==========================================
@@ -640,7 +553,6 @@ def get_connected_instagram_accounts(token):
     response = requests.get(url, params=params, timeout=(10, 20)).json()
     if "error" in response:
         raise Exception(f"Token error: {response['error'].get('message')}")
-
     accounts = []
     for page in response.get("data", []):
         ig_biz = page.get("instagram_business_account")
@@ -697,45 +609,35 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     raw_dur = get_media_duration(input_path)
     trim_start = round(random.uniform(0.05, 0.25), 3) if raw_dur > 6.5 else 0.0
     speed = round(random.uniform(0.992, 1.008), 4)
-
     target_loop_dur = round(random.uniform(7.0, 8.2), 2)
     final_duration = round(min(target_loop_dur, max(6.4, (raw_dur - trim_start - 0.08) / speed)), 2)
     pitch_start = round(final_duration * 0.58, 2)
     pitch_delay_ms = int(pitch_start * 1000)
-
     crop_keep = round(random.uniform(0.975, 0.992), 4)
     x_jitter = random.randint(-4, 4)
     y_jitter = random.randint(-4, 4)
-
     b_shift = round(random.uniform(0.004, 0.016), 4)
     c_shift = round(random.uniform(1.080, 1.125), 4)
     s_shift = round(random.uniform(1.125, 1.185), 4)
     g_shift = round(random.uniform(0.960, 0.988), 4)
     luma_sharp = round(random.uniform(0.96, 1.18), 2)
-
     rs = round(random.uniform(-0.018, -0.006), 4)
     gs = round(random.uniform(-0.008, 0.006), 4)
     bs = round(random.uniform(0.008, 0.022), 4)
     rh = round(random.uniform(0.005, 0.018), 4)
     gh = round(random.uniform(0.002, 0.012), 4)
     bh = round(random.uniform(-0.014, -0.004), 4)
-
     epoch_jitter = int(time.time()) - random.randint(600, 259200)
-
     msg_tuple = random.choice(ARC_UNIFIED_MESSAGES)
     top_hook, center_line1, center_line2 = [t.replace("'", "").replace(":", " -") for t in msg_tuple]
     hook_color = random.choice(HOOK_HIGH_CONTRAST_COLORS)
-
     top_x_offset = random.randint(-6, 6)
     top_y = random.randint(255, 315)
-
     center_y_shift = random.choice([-35, -15, 0, 15, 35])
     c1_y = f"(h/2)-48+{center_y_shift}"
     c2_y = f"(h/2)+22+{center_y_shift}"
     band_y = f"(h/2)-98+{center_y_shift}"
-
     mirror_filter = "hflip," if random.choice([True, False]) else ""
-
     vf_chain = (
         f"setpts=PTS/{speed},"
         f"{mirror_filter}"
@@ -761,21 +663,18 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
         f"box=1:boxcolor=black@0.92:boxborderw=14:"
         f"x=(w-text_w)/2:y={c2_y}:enable='gte(t,{pitch_start})'"
     )
-
     vo_path = f"vo_temp_{node_idx}_{random.randint(100,999)}.mp3"
     has_vo = False
     try:
         has_vo = generate_neural_voiceover(vo_path)
     except Exception:
         has_vo = False
-
     crf_val = str(random.choice([18, 19]))
     fade_out_st = round(max(1.0, final_duration - 0.35), 2)
     has_orig_audio = video_has_audio_stream(input_path)
     pitch_shift = round(random.uniform(0.992, 1.008), 4)
     eq_freq = random.randint(1200, 3800)
     eq_gain = random.choice([-1.4, -0.9, 0.9, 1.4])
-
     try:
         if has_orig_audio and has_vo:
             filter_complex = (
@@ -803,7 +702,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
             res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
             if res.returncode == 0 and verify_video_has_real_frames(output_path):
                 return output_path
-
         fallback_cmd = [
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
             "-stream_loop", "-1", "-ss", str(trim_start), "-t", str(final_duration), "-i", input_path,
@@ -823,7 +721,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
                 os.remove(vo_path)
             except Exception:
                 pass
-
     return output_path
 
 # ==========================================
@@ -878,7 +775,6 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
     res = requests.post(container_url, data=payload, timeout=(10, 30)).json()
     if "id" not in res:
         raise Exception(f"Container failed: {res}")
-
     creation_id = res["id"]
     status_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{creation_id}"
     time.sleep(30)
@@ -892,12 +788,10 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
         time.sleep(12)
     else:
         raise Exception("Meta video processing timed out.")
-
     publish_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish"
     publish_res = requests.post(publish_url, data={"creation_id": creation_id, "access_token": token}, timeout=(10, 30)).json()
     if "id" not in publish_res:
         raise Exception(f"Publish failed: {publish_res}")
-
     log(f"[SUCCESS] PUBLISHED LIVE! Media ID: {publish_res['id']}")
 
 # ==========================================
@@ -906,16 +800,14 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
 def main():
     log("=== ARC PER-ACCOUNT RANDOM REEL ENGINE & 8-SECOND CLOSER STARTED ===")
     ensure_edge_tts_installed()
-
     active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
     if not active_tokens:
         log("[OVERFLOW] META_TOKEN_1 not found in environment. Exiting cleanly.")
         return
-
     font_path = ensure_custom_font()
     posted_history = load_set_file(HISTORY_FILE)
-
-    all_accounts, seen_ig_ids = [], set()
+    all_accounts = []
+    seen_ig_ids = set()
     for token in active_tokens:
         try:
             for a in get_connected_instagram_accounts(token):
@@ -924,31 +816,24 @@ def main():
                     all_accounts.append(a)
         except Exception as e:
             log(f"[OVERFLOW] Token check warning bypassed: {e}")
-
     if not all_accounts:
         log("[OVERFLOW] Zero Instagram Business accounts discovered. Exiting cleanly.")
         return
-
     stop_event = threading.Event()
     closer_thread = threading.Thread(target=run_realtime_comment_closer, args=(all_accounts, stop_event), daemon=True)
     closer_thread.start()
-
     wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
     caption_batch = generate_unique_caption_batch(len(wave_accounts))
-
-    # Build the master catalog ONCE per wave instead of re-scraping on every node
     master_catalog = build_master_reel_catalog_once()
     downloaded_cache = {}
     non_video_shortcodes = set()
     used_in_wave = set()
     success_count = 0
-
     try:
         for index, acc in enumerate(wave_accounts):
             ig_uid = str(acc["ig_user_id"])
             log(f"\n--- NODE [{index+1}/{len(wave_accounts)}]: {acc['page_name']} ({ig_uid}) ---")
             mutated_output = f"arc_4k_stealth_{index}.mp4"
-
             try:
                 chosen_id, source_video = pick_random_reel_for_account(
                     ig_uid,
@@ -958,17 +843,12 @@ def main():
                     non_video_shortcodes,
                     used_in_wave
                 )
-
                 if not source_video or not os.path.exists(source_video):
                     log(f"[OVERFLOW] No downloadable Reel found for {acc['page_name']}, moving to next node...")
                     continue
-
                 mutate_video_for_account(source_video, mutated_output, font_path, node_idx=index)
                 public_url = upload_for_meta_download(mutated_output)
                 publish_reel_to_instagram(ig_uid, public_url, caption_batch[index], acc["token"])
-
-                # Lock this Reel ONLY for this specific account so this account never repeats it,
-                # while other accounts that haven't posted it yet can still randomly pick it.
                 append_to_set_file(HISTORY_FILE, f"{ig_uid}:{chosen_id}", posted_history)
                 success_count += 1
             except Exception as e:
@@ -979,7 +859,6 @@ def main():
                         os.remove(mutated_output)
                     except Exception:
                         pass
-
             if index < len(wave_accounts) - 1:
                 cooldown_sec = random.randint(MIN_COOLDOWN_SECONDS, MAX_COOLDOWN_SECONDS)
                 log(f"[TIMER] Waiting {cooldown_sec}s before next upload (8s Auto-DM Closer active)...")
@@ -992,7 +871,6 @@ def main():
                     os.remove(cached_file)
                 except Exception:
                     pass
-
     log(f"\n=== WAVE COMPLETE: {success_count}/{len(wave_accounts)} RANDOM TARGET REELS PUBLISHED ===")
 
 if __name__ == "__main__":
