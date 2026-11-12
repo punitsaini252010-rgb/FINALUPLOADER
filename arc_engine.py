@@ -3,7 +3,6 @@ import re
 import sys
 import json
 import time
-import threading
 import urllib.parse
 import subprocess
 import requests
@@ -35,17 +34,14 @@ def ensure_edge_tts_installed():
             log(f"[OVERFLOW] edge-tts install skipped: {e}")
 
 # ==========================================
-# 1. CORE CONFIGURATION (ALL ACCOUNTS EVERY 30 MINS)
+# 1. CORE CONFIGURATION & TARGET ACCOUNTS
 # ==========================================
 META_TOKENS = [
     os.getenv("META_TOKEN_1"),
     os.getenv("META_TOKEN_2")
 ]
 
-ARC_DIRECT_LINK = os.getenv("ARC_JOIN_LINK", "https://www.instagram.com/arcbloodline30/")
 GRAPH_API_VERSION = "v20.0"
-
-# Posts across all 23 accounts on every 30-minute run
 ACCOUNTS_PER_WAVE = 23
 MIN_COOLDOWN_SECONDS = 3
 MAX_COOLDOWN_SECONDS = 7
@@ -53,7 +49,6 @@ MAX_COOLDOWN_SECONDS = 7
 LINKS_FILE = "reel_links.txt"
 HISTORY_FILE = "arc_ig_history.txt"
 DEAD_SHORTCODES_FILE = "arc_dead_shortcodes.txt"
-REPLIED_COMMENTS_FILE = "replied_comments.txt"
 CURSOR_FILE = "account_cursor.txt"
 ASSETS_DIR = "assets"
 STYLISH_FONT_PATH = "Cinzel-Bold.ttf"
@@ -88,13 +83,19 @@ GOLD_HEX = "0xFFD700"
 ARC_FINAL_LINE_1 = "A R C  -  P R I V A T E   O N L I N E   W E A L T H   S Y S T E M"
 ARC_FINAL_LINE_2 = "J O I N   A R C   N O W   -   @ A R C B L O O D L I N E 3 0   B I O"
 
-# Concise, high-trust scripts timed so the voiceover and gold final lines finish together cleanly
 ARC_VOICEOVER_SCRIPTS = [
     "ARC is the private online wealth system. Join now through the link in the bio.",
     "Stop trading your time for a paycheck. Enter the ARC wealth system in the bio right now.",
     "You do not need luck, you need a proven system. Join the private ARC network in the bio.",
     "Most men just watch while builders execute. Step inside ARC through the bio link today.",
     "Escape the rat race and build real digital income. Tap the bio link and join ARC now."
+]
+
+HOOK_HIGH_CONTRAST_COLORS = [
+    "0xFFE600",
+    "0x00F5D4",
+    "0xFF3B30",
+    "0x00FF66"
 ]
 
 ARC_TOP_HOOKS = [
@@ -116,14 +117,13 @@ ARC_UNIFIED_MESSAGES = [
     (hook, ARC_FINAL_LINE_1, ARC_FINAL_LINE_2) for hook in ARC_TOP_HOOKS
 ]
 
-# Structured Niche-Categorized Captions for Instagram Algorithmic Indexing
 ARC_AUTHORITY_CAPTIONS = [
     (
         "What is ARC?\n\n"
         "ARC is a private online wealth and digital business system built for men ready to create independent online income from scratch.\n"
         "• Proven step-by-step digital income blueprints\n"
         "• Direct private network of high-level builders & operators\n\n"
-        "-> Join ARC now via the link in @ARCBLOODLINE30 bio (or comment 'ARC' for an instant DM).\n\n"
+        "-> Join ARC now via the link in @ARCBLOODLINE30 bio.\n\n"
         "Niche & Category: Luxury Lifestyle • Wealth Creation • Digital Entrepreneurship • Financial Freedom\n"
         "#luxurylifestyle #wealthmindset #entrepreneurship #digitalbusiness #financialfreedom #oldmoney #successmindset #onlineincome"
     ),
@@ -131,7 +131,7 @@ ARC_AUTHORITY_CAPTIONS = [
         "Stop watching other men live the life you were meant to build.\n\n"
         "Inside ARC, you unlock the exact digital business models, scalable systems, and private execution network to build real online cashflow.\n"
         "No fluff. Pure execution.\n\n"
-        "-> Tap @ARCBLOODLINE30 and click the bio link to enter ARC right now (or comment 'ARC' below).\n\n"
+        "-> Tap @ARCBLOODLINE30 and click the bio link to enter ARC right now.\n\n"
         "Niche & Category: Billionaire Mindset • Online Business • High-Status Living • Wealth Systems\n"
         "#billionairemindset #luxurycars #wealthbuilding #onlinebusiness #menwithclass #financialindependence #entrepreneur #success"
     ),
@@ -139,7 +139,7 @@ ARC_AUTHORITY_CAPTIONS = [
         "Why 99% of men stay trapped in the paycheck cycle:\n\n"
         "They work hard inside someone else's system instead of owning digital leverage.\n"
         "ARC gives you the complete online wealth blueprint and private community to take control of your income.\n\n"
-        "-> Enter ARC right now via @ARCBLOODLINE30 bio (or drop 'ARC' in the comments for the direct link).\n\n"
+        "-> Enter ARC right now via @ARCBLOODLINE30 bio.\n\n"
         "Niche & Category: Men's Self-Improvement • Wealth Architecture • Luxury Aesthetic • Business Systems\n"
         "#mindset #wealth #luxury #businessowner #millionairemindset #selfimprovement #oldmoneyaesthetic #moneymindset"
     ),
@@ -147,7 +147,7 @@ ARC_AUTHORITY_CAPTIONS = [
         "Read this before you scroll past:\n\n"
         "If you repeat the last 6 months for the next 5 years, nothing changes.\n"
         "ARC was built for ambitious men ready to lock in and build automated digital income alongside serious operators.\n\n"
-        "-> Claim your spot in @ARCBLOODLINE30 bio before doors close (or comment 'ARC').\n\n"
+        "-> Claim your spot in @ARCBLOODLINE30 bio before doors close.\n\n"
         "Niche & Category: Private Wealth Network • Digital Assets • Luxury Motivation • Financial Sovereignty\n"
         "#luxurylife #wealthcreation #businessmindset #entrepreneurlife #successdriven #financialfreedom #richmindset #luxury"
     )
@@ -160,56 +160,7 @@ def generate_unique_caption_batch(count):
     return [f"{pool[i % len(pool)]}{random.choice(micro_tags)}".strip() for i in range(count)]
 
 # ==========================================
-# 3. REAL-TIME 8-SECOND AUTO-COMMENT & DM CLOSER
-# ==========================================
-def run_realtime_comment_closer(all_accounts, stop_event):
-    replied_ids = load_set_file(REPLIED_COMMENTS_FILE)
-    log("[REAL-TIME CLOSER] 8-second Instant Comment-to-DM Daemon ACTIVE across all accounts.")
-    while not stop_event.is_set():
-        for acc in all_accounts:
-            if stop_event.is_set():
-                break
-            ig_id = acc.get("ig_user_id")
-            page_token = acc.get("page_token") or acc.get("token")
-            user_token = acc.get("token")
-            own_username = (acc.get("ig_username") or "").lower()
-            try:
-                media_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_id}/media"
-                m_res = requests.get(media_url, params={"fields": "id,comments.limit(10){id,text,username}", "limit": 5, "access_token": user_token}, timeout=10).json()
-                for media in m_res.get("data", []):
-                    comments = (media.get("comments") or {}).get("data") or []
-                    for c in comments:
-                        cid = str(c.get("id", ""))
-                        c_user = str(c.get("username", "")).lower()
-                        if not cid or cid in replied_ids or (own_username and c_user == own_username):
-                            continue
-                        reply_text = f"@{c.get('username', '')} Sent you the private access link. You can also enter ARC directly via @ARCBLOODLINE30 bio ⚡"
-                        try:
-                            requests.post(f"https://graph.facebook.com/{GRAPH_API_VERSION}/{cid}/replies", data={"message": reply_text, "access_token": user_token}, timeout=10)
-                        except Exception:
-                            pass
-                        dm_payload = {
-                            "recipient": {"comment_id": cid},
-                            "message": {
-                                "text": (
-                                    "A R C  —  P R I V A T E   O N L I N E   W E A L T H   S Y S T E M\n\n"
-                                    f"Step inside ARC directly here: {ARC_DIRECT_LINK}\n\n"
-                                    "Or tap the main portal in @ARCBLOODLINE30 bio before spots lock."
-                                )
-                            }
-                        }
-                        try:
-                            requests.post(f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/messages", params={"access_token": page_token}, json=dm_payload, timeout=10)
-                        except Exception:
-                            pass
-                        append_to_set_file(REPLIED_COMMENTS_FILE, cid, replied_ids)
-                        log(f"[INSTANT CLOSE] Auto-Replied & DM'd @{c_user} on {acc.get('page_name', 'Node')}!")
-            except Exception:
-                pass
-        stop_event.wait(8.0)
-
-# ==========================================
-# 4. VIDEO-ONLY SCRAPER (NO SONG CLIPS / NO PHOTO POSTS)
+# 3. VIDEO-ONLY SCRAPER (NO SONG CLIPS / NO PHOTO POSTS)
 # ==========================================
 def unescape_ig_payload(raw_text):
     if not raw_text:
@@ -301,10 +252,6 @@ def get_media_duration(input_path):
         return 0.0
 
 def verify_high_quality_reel_source(video_path):
-    """
-    Strictly verifies that the downloaded file is a real, high-resolution video Reel
-    at least 9.0 seconds long (rejects 3-6s song clips, static images, and low-bitrate files).
-    """
     if not os.path.exists(video_path) or os.path.getsize(video_path) < 350000:
         return False
     try:
@@ -365,7 +312,6 @@ def harvest_handle_videos_only(handle, seen_shortcodes, dead_shortcodes, catalog
             r = requests.get(embed_url, headers=BROWSER_HEADERS, timeout=15)
             if r.status_code == 200 and len(r.text) > 500:
                 clean_html = unescape_ig_payload(r.text)
-                # 1. Direct shortcode + video_url matches (100% guaranteed video posts)
                 pair_pattern = r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"[^{}]*?"video_url"\s*:\s*"(https?://[^"]+)"'
                 for match in re.finditer(pair_pattern, clean_html):
                     sc, v_url = match.group(1), match.group(2)
@@ -374,7 +320,6 @@ def harvest_handle_videos_only(handle, seen_shortcodes, dead_shortcodes, catalog
                         seen_shortcodes.add(cid)
                         catalog.append((cid, v_url, f"https://www.instagram.com/reel/{sc}/", handle))
                         count += 1
-                # 2. GraphVideo / is_video=true nodes only (skips GraphImage photo posts)
                 video_node_scs = re.findall(r'"__typename"\s*:\s*"GraphVideo"[^{}]*?"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean_html)
                 video_node_scs += re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"[^{}]*?"is_video"\s*:\s*true', clean_html)
                 video_node_scs += re.findall(r'/reel/([A-Za-z0-9_-]{8,15})/', clean_html)
@@ -548,7 +493,7 @@ def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, dow
     for canonical_id, media_url, permalink, source_handle in candidates:
         if canonical_id in downloaded_cache and os.path.exists(downloaded_cache[canonical_id]):
             used_in_wave.add(canonical_id)
-            log(f"[RANDOM PICK] Selected verified 10-15s Reel {canonical_id} (from @{source_handle}) for {ig_user_id}")
+            log(f"[RANDOM PICK] Selected verified Reel {canonical_id} (from @{source_handle}) for {ig_user_id}")
             return canonical_id, downloaded_cache[canonical_id]
         full_path = os.path.join(ASSETS_DIR, f"master_{canonical_id}.mp4")
         downloaded = False
@@ -559,7 +504,7 @@ def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, dow
         if downloaded:
             downloaded_cache[canonical_id] = full_path
             used_in_wave.add(canonical_id)
-            log(f"[RANDOM PICK] Downloaded HD 10-15s Reel {canonical_id} (from @{source_handle}) for {ig_user_id}")
+            log(f"[RANDOM PICK] Downloaded HD Reel {canonical_id} (from @{source_handle}) for {ig_user_id}")
             return canonical_id, full_path
         append_to_set_file(DEAD_SHORTCODES_FILE, canonical_id, dead_shortcodes)
     return None, None
@@ -592,7 +537,7 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 6. ULTRA-HD 10-15s GOLD STYLISH FONT & UNCUT AI VOICEOVER ENGINE
+# 6. ULTRA-HD GOLD STYLISH FONT & UNCUT AI VOICEOVER ENGINE
 # ==========================================
 def ensure_stylish_luxury_font():
     if os.path.exists(STYLISH_FONT_PATH) and os.path.getsize(STYLISH_FONT_PATH) > 15000:
@@ -629,7 +574,6 @@ def generate_neural_voiceover(out_mp3_path):
             ]
             subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
             if os.path.exists(raw_vo) and os.path.getsize(raw_vo) > 4000:
-                # Trim leading/trailing dead silence so voiceover timing is exact to the millisecond
                 trim_cmd = [
                     "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                     "-i", raw_vo,
@@ -651,14 +595,6 @@ def generate_neural_voiceover(out_mp3_path):
     return False
 
 def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
-    """
-    1. NEVER flips the video (no hflip) so existing on-screen text remains 100% readable.
-    2. Locks final duration between 11.0 and 15.0 seconds.
-    3. Generates the realistic AI voiceover FIRST and measures its exact duration (vo_dur),
-       setting pitch_start = final_duration - vo_dur - 0.55s so the Gold Top Hook lasts right
-       until the Gold Final Lines start, and the AI voiceover NEVER gets cut off.
-    4. Renders at Ultra-HD CRF 16 with Lanczos scaling and zero artificial noise.
-    """
     vo_path = f"vo_temp_{node_idx}_{random.randint(100,999)}.mp3"
     has_vo = False
     vo_dur = 4.2
@@ -672,7 +608,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
         has_vo = False
 
     raw_dur = get_media_duration(input_path)
-    # Lock Reel length strictly to 11.0 - 15.0 seconds
     if 11.0 <= raw_dur <= 15.0:
         final_duration = round(raw_dur, 2)
     elif raw_dur > 15.0:
@@ -680,12 +615,10 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     else:
         final_duration = round(random.uniform(11.5, 13.8), 2)
 
-    # Guarantee enough room for at least 5.5s of the top hook + the ENTIRE voiceover + 0.55s tail buffer
     min_needed_dur = round(vo_dur + 6.0, 2)
     if final_duration < min_needed_dur:
         final_duration = min(15.0, min_needed_dur)
 
-    # Exact handoff timestamp: Top Gold Hook ends at pitch_start; Gold Final Lines + Voiceover run from pitch_start to end
     pitch_start = round(max(4.5, final_duration - vo_dur - 0.55), 2)
     pitch_delay_ms = int(pitch_start * 1000)
 
@@ -699,7 +632,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     c2_y = f"(h/2)+26+{center_y_shift}"
     band_y = f"(h/2)-96+{center_y_shift}"
 
-    # Pure Ultra-HD visual chain: NO hflip, NO grain noise, crisp Lanczos 1080x1920 scaling, Gold Stylish Typography
     vf_chain = (
         f"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,"
         f"crop=1080:1920,fps=30,"
@@ -725,7 +657,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
 
     try:
         if has_orig_audio and has_vo:
-            # apad on [1:a] ensures the voiceover stream never prematurely terminates amix before final_duration
             filter_complex = (
                 f"[0:v]{vf_chain}[vout];"
                 f"[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
@@ -775,8 +706,7 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
             except Exception:
                 pass
     return output_path
-
-# ==========================================
+    # ==========================================
 # 7. RELAY UPLOAD & GRAPH API PUBLISH
 # ==========================================
 def upload_for_meta_download(file_path):
@@ -851,7 +781,7 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
 # 8. MAIN EXECUTION
 # ==========================================
 def main():
-    log("=== ARC ULTRA-HD 10-15s GOLD EDITION & 8-SECOND CLOSER STARTED ===")
+    log("=== ARC ULTRA-HD GOLD PUBLISHING ENGINE STARTED ===")
     ensure_edge_tts_installed()
     active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
     if not active_tokens:
@@ -873,9 +803,7 @@ def main():
     if not all_accounts:
         log("[OVERFLOW] Zero Instagram Business accounts discovered. Exiting cleanly.")
         return
-    stop_event = threading.Event()
-    closer_thread = threading.Thread(target=run_realtime_comment_closer, args=(all_accounts, stop_event), daemon=True)
-    closer_thread.start()
+
     wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
     caption_batch = generate_unique_caption_batch(len(wave_accounts))
     master_catalog = build_master_reel_catalog_once(dead_shortcodes)
@@ -914,10 +842,9 @@ def main():
                         pass
             if index < len(wave_accounts) - 1:
                 cooldown_sec = random.randint(MIN_COOLDOWN_SECONDS, MAX_COOLDOWN_SECONDS)
-                log(f"[TIMER] Waiting {cooldown_sec}s before next account (8s Auto-DM Closer active)...")
+                log(f"[TIMER] Waiting {cooldown_sec}s before next account...")
                 time.sleep(cooldown_sec)
     finally:
-        stop_event.set()
         for cached_file in downloaded_cache.values():
             if cached_file and os.path.exists(cached_file):
                 try:
