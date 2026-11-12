@@ -42,11 +42,25 @@ jobs:
           ARC_JOIN_LINK: ${{ secrets.ARC_JOIN_LINK }}
         run: python arc_engine.py
 
-      - name: Save Ledger & Cursor State
+      - name: Save Ledger & Cursor State (Zero Merge Conflicts)
         if: always()
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "ARC Fleet Engine"
-          touch arc_ig_history.txt account_cursor.txt replied_comments.txt reel_links.txt
-          git add arc_ig_history.txt account_cursor.txt replied_comments.txt reel_links.txt
-          git diff --staged --quiet || (git commit -m "chore: update ARC wave ledger and state" && git pull --rebase origin main && git push origin main)
+          touch arc_ig_history.txt arc_dead_shortcodes.txt account_cursor.txt replied_comments.txt reel_links.txt
+          cp arc_ig_history.txt /tmp/arc_ig_history.bak
+          cp arc_dead_shortcodes.txt /tmp/arc_dead_shortcodes.bak
+          cp replied_comments.txt /tmp/replied_comments.bak
+          cp account_cursor.txt /tmp/account_cursor.bak
+          git fetch origin main
+          git reset --hard origin/main
+          touch arc_ig_history.txt arc_dead_shortcodes.txt account_cursor.txt replied_comments.txt reel_links.txt
+          cat /tmp/arc_ig_history.bak >> arc_ig_history.txt
+          sort -u arc_ig_history.txt -o arc_ig_history.txt
+          cat /tmp/arc_dead_shortcodes.bak >> arc_dead_shortcodes.txt
+          sort -u arc_dead_shortcodes.txt -o arc_dead_shortcodes.txt
+          cat /tmp/replied_comments.bak >> replied_comments.txt
+          sort -u replied_comments.txt -o replied_comments.txt
+          cp /tmp/account_cursor.bak account_cursor.txt
+          git add arc_ig_history.txt arc_dead_shortcodes.txt account_cursor.txt replied_comments.txt reel_links.txt
+          git diff --staged --quiet || (git commit -m "chore: update ARC wave ledger and state" && git push origin main)
