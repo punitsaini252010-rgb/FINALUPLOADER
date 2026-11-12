@@ -884,4 +884,120 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
     time.sleep(30)
     for _ in range(15):
         status_res = requests.get(status_url, params={"fields": "status_code,status", "access_token": token}, timeout=(10, 20)).json()
-          
+        status_code = status_res.get("status_code")
+        if status_code == "FINISHED":
+            break
+        elif status_code in ("ERROR", "EXPIRED"):
+            raise Exception(f"Meta rejected video: {status_res}")
+        time.sleep(12)
+    else:
+        raise Exception("Meta video processing timed out.")
+
+    publish_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish"
+    publish_res = requests.post(publish_url, data={"creation_id": creation_id, "access_token": token}, timeout=(10, 30)).json()
+    if "id" not in publish_res:
+        raise Exception(f"Publish failed: {publish_res}")
+
+    log(f"[SUCCESS] PUBLISHED LIVE! Media ID: {publish_res['id']}")
+
+# ==========================================
+# 8. MAIN EXECUTION
+# ==========================================
+def main():
+    log("=== ARC PER-ACCOUNT RANDOM REEL ENGINE & 8-SECOND CLOSER STARTED ===")
+    ensure_edge_tts_installed()
+
+    active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
+    if not active_tokens:
+        log("[OVERFLOW] META_TOKEN_1 not found in environment. Exiting cleanly.")
+        return
+
+    font_path = ensure_custom_font()
+    posted_history = load_set_file(HISTORY_FILE)
+
+    all_accounts, seen_ig_ids = [], set()
+    for token in active_tokens:
+        try:
+            for a in get_connected_instagram_accounts(token):
+                if a["ig_user_id"] not in seen_ig_ids:
+                    seen_ig_ids.add(a["ig_user_id"])
+                    all_accounts.append(a)
+        except Exception as e:
+            log(f"[OVERFLOW] Token check warning bypassed: {e}")
+
+    if not all_accounts:
+        log("[OVERFLOW] Zero Instagram Business accounts discovered. Exiting cleanly.")
+        return
+
+    stop_event = threading.Event()
+    closer_thread = threading.Thread(target=run_realtime_comment_closer, args=(all_accounts, stop_event), daemon=True)
+    closer_thread.start()
+
+    wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
+    caption_batch = generate_unique_caption_batch(len(wave_accounts))
+
+    # Build the master catalog ONCE per wave instead of re-scraping on every node
+    master_catalog = build_master_reel_catalog_once()
+    downloaded_cache = {}
+    non_video_shortcodes = set()
+    used_in_wave = set()
+    success_count = 0
+
+    try:
+        for index, acc in enumerate(wave_accounts):
+            ig_uid = str(acc["ig_user_id"])
+            log(f"\n--- NODE [{index+1}/{len(wave_accounts)}]: {acc['page_name']} ({ig_uid}) ---")
+            mutated_output = f"arc_4k_stealth_{index}.mp4"
+
+            try:
+                chosen_id, source_video = pick_random_reel_for_account(
+                    ig_uid,
+                    master_catalog,
+                    posted_history,
+                    downloaded_cache,
+                    non_video_shortcodes,
+                    used_in_wave
+                )
+
+                if not source_video or not os.path.exists(source_video):
+                    log(f"[OVERFLOW] No downloadable Reel found for {acc['page_name']}, moving to next node...")
+                    continue
+
+                mutate_video_for_account(source_video, mutated_output, font_path, node_idx=index)
+                public_url = upload_for_meta_download(mutated_output)
+                publish_reel_to_instagram(ig_uid, public_url, caption_batch[index], acc["token"])
+
+                # Lock this Reel ONLY for this specific account so this account never repeats it,
+                # while other accounts that haven't posted it yet can still randomly pick it.
+                append_to_set_file(HISTORY_FILE, f"{ig_uid}:{chosen_id}", posted_history)
+                success_count += 1
+            except Exception as e:
+                log(f"[OVERFLOW] Bypassed error on {acc['page_name']} and continuing wave: {e}")
+            finally:
+                if os.path.exists(mutated_output):
+                    try:
+                        os.remove(mutated_output)
+                    except Exception:
+                        pass
+
+            if index < len(wave_accounts) - 1:
+                cooldown_sec = random.randint(MIN_COOLDOWN_SECONDS, MAX_COOLDOWN_SECONDS)
+                log(f"[TIMER] Waiting {cooldown_sec}s before next upload (8s Auto-DM Closer active)...")
+                time.sleep(cooldown_sec)
+    finally:
+        stop_event.set()
+        for cached_file in downloaded_cache.values():
+            if cached_file and os.path.exists(cached_file):
+                try:
+                    os.remove(cached_file)
+                except Exception:
+                    pass
+
+    log(f"\n=== WAVE COMPLETE: {success_count}/{len(wave_accounts)} RANDOM TARGET REELS PUBLISHED ===")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as fatal_err:
+        log(f"[GLOBAL OVERFLOW] Exception caught: {fatal_err}")
+        sys.exit(0)
