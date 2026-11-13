@@ -1,6 +1,12 @@
 heritageclass|ig_DXALyS6gnlB
 heritageclass|ig_Db1YOghiVHC
+heritageclass|ig_Dbx03L7gi3N
 heritageclass|ig_DcwpCOCCLF_
+heritageclass|ig_DdwWd-EtpJm
+heritageclass|ig_DfNtJkVAqqP
+heritageclass|ig_DfiV6e6CnxU
+heritageclass|ig_DfiWSJAggGm
+heritageclass|ig_DfiWnDdAhi2
 heritageclass|ig_DfiX12aCK2Z
 heritageclass|ig_DfiX16kChNL
 heritageclass|ig_DfiX19fiyB1
@@ -130,6 +136,12 @@ luxuriaaura|ig_DbbVAk_x_LR
 luxuriaaura|ig_DblK6HrKzTQ
 luxuriaaura|ig_DbvZNu8K1dB
 luxuriaaura|ig_DbvjGgUqhVx
+luxuriaaura|ig_DfhaInkoix1
+luxuriaaura|ig_DfhiTn0ocdU
+luxuriaaura|ig_DfpI8NUKHFL
+luxuriaaura|ig_DfpOmGcqMpM
+luxuriaaura|ig_DfpSZR5qZyn
+luxuriaaura|ig_Dfrt6TWK7O5
 toptierclasy|ig_DX6QV-BiB8q
 toptierclasy|ig_DeKdM3iiACk
 toptierclasy|ig_DeTwv6oCA49
