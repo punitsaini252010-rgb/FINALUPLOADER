@@ -16,18 +16,15 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 class SilentYTDLLogger:
-    def debug(self, msg):
-        pass
-    def warning(self, msg):
-        pass
-    def error(self, msg):
-        pass
+    def debug(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
 
 def ensure_edge_tts_installed():
     try:
         subprocess.run(["edge-tts", "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=True)
     except Exception:
-        log("[INIT] Installing edge-tts for realistic neural voiceover...")
+        log("[INIT] Installing edge-tts for neural voiceover...")
         try:
             subprocess.run([sys.executable, "-m", "pip", "install", "-q", "edge-tts"], stdin=subprocess.DEVNULL, timeout=60)
         except Exception as e:
@@ -42,11 +39,8 @@ META_TOKENS = [
 ]
 
 GRAPH_API_VERSION = "v20.0"
-
-# All connected accounts post 1 Reel per 1-hour wave
 ACCOUNTS_PER_WAVE = 23
-# Target 3,180s (53 mins) across all accounts so the entire wave + git save finishes inside 1 hour (3,600s)
-TARGET_WAVE_WINDOW_SECONDS = 3180
+TARGET_WAVE_WINDOW_SECONDS = 3180  # 53 mins active window so wave + git push fits inside 1 hour
 
 LINKS_FILE = "reel_links.txt"
 HISTORY_FILE = "arc_ig_history.txt"
@@ -55,7 +49,6 @@ DISCOVERED_POOL_FILE = "arc_discovered_pool.txt"
 ASSETS_DIR = "assets"
 STYLISH_FONT_PATH = "Cinzel-Bold.ttf"
 
-# Your exact 7 scraping accounts (intensecorb deduplicated automatically)
 TARGET_IG_ACCOUNTS_TO_SCRAPE = [
     "https://www.instagram.com/luxereturns?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
     "https://www.instagram.com/luxuriaaura?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
@@ -66,8 +59,14 @@ TARGET_IG_ACCOUNTS_TO_SCRAPE = [
     "https://www.instagram.com/toptierclasy?utm_source=ig_web_button_share_sheet&exln=ZDNlZDc0MzIxNw=="
 ]
 
+USER_AGENTS = [
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15"
+]
+
 BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+    "User-Agent": USER_AGENTS[0],
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9"
 }
@@ -78,7 +77,7 @@ BOT_EMBED_HEADERS = {
 }
 
 # ==========================================
-# 2. GOLD STYLISH HOOKS, GOLD FINAL LINES & REALISTIC VOICEOVER
+# 2. GOLD STYLISH HOOKS, 3-4s FINAL LINES & VOICEOVER
 # ==========================================
 GOLD_HEX = "0xFFD700"
 
@@ -108,9 +107,7 @@ ARC_TOP_HOOKS = [
     "O B E D I E N C E   W I L L   N E V E R   M A K E   Y O U   R I C H"
 ]
 
-ARC_UNIFIED_MESSAGES = [
-    (hook, ARC_FINAL_LINE_1, ARC_FINAL_LINE_2) for hook in ARC_TOP_HOOKS
-]
+ARC_UNIFIED_MESSAGES = [(hook, ARC_FINAL_LINE_1, ARC_FINAL_LINE_2) for hook in ARC_TOP_HOOKS]
 
 CAPTION_OPENERS = [
     "Most men spend their best years building someone else's dream.",
@@ -164,14 +161,17 @@ def generate_unique_caption_batch(count):
     return captions
 
 # ==========================================
-# 3. DEEP MULTI-ROUTE HARVESTER (ALL EXISTING REELS)
+# 3. 5-LAYER AUTONOMOUS REEL HARVESTER
 # ==========================================
 def unescape_ig_payload(raw_text):
     if not raw_text:
         return ""
-    s = raw_text.replace(r"\\/", "/").replace(r"\/", "/")
-    s = s.replace(r"\\u0026", "&").replace(r"\u0026", "&")
-    s = s.replace(r'\\"', '"').replace(r'\"', '"')
+    s = raw_text
+    for _ in range(2):
+        s = s.replace(r"\\/", "/").replace(r"\/", "/")
+        s = s.replace(r"\\u0026", "&").replace(r"\u0026", "&")
+        s = s.replace(r"\\u0022", '"').replace(r"\u0022", '"')
+        s = s.replace(r'\\"', '"').replace(r'\"', '"')
     return s.replace("&quot;", '"').replace("&amp;", "&")
 
 def extract_ig_handle(raw_entry):
@@ -227,10 +227,6 @@ def append_to_set_file(filepath, identifier, memory_set):
             pass
 
 def select_hourly_ordered_accounts(all_accounts, batch_size):
-    """
-    Keeps a consistent account sequence across every 1-hour wave so Account #k
-    always posts at approximately the same minute mark every hour (~60 mins apart).
-    """
     sorted_accs = sorted(all_accounts, key=lambda x: str(x["ig_user_id"]))
     selected = sorted_accs[:min(batch_size, len(sorted_accs))]
     log(f"[HOURLY WAVE] Locked {len(selected)} accounts in 1-hour cadence order.")
@@ -294,78 +290,123 @@ def save_and_verify_stream(raw_url, out_path, headers=None):
         pass
     return False
 
+def register_shortcode(handle, sc, v_url, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog):
+    if not sc or len(sc) < 8 or len(sc) > 15:
+        return 0
+    reserved = {"embed", "captioned", "reels", "stories", "explore", "accounts", handle.lower()}
+    if sc.lower() in reserved:
+        return 0
+    cid = f"ig_{sc}"
+    if cid in dead_shortcodes:
+        return 0
+    append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
+    if cid not in seen_shortcodes:
+        seen_shortcodes.add(cid)
+        catalog.append((cid, v_url or "", f"https://www.instagram.com/reel/{sc}/", handle))
+        return 1
+    return 0
+
+def extract_all_shortcodes_from_text(handle, raw_text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog):
+    added = 0
+    clean = unescape_ig_payload(raw_text)
+    # 1. Direct shortcode + video_url pairs
+    for m in re.finditer(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})".{0,1200}?"video_url"\s*:\s*"(https?://[^"]+)"', clean, re.DOTALL):
+        added += register_shortcode(handle, m.group(1), m.group(2), seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+    # 2. All JSON shortcode fields (fixes the nested dimensions object bug)
+    for sc in re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean):
+        added += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+    # 3. All /reel/SHORTCODE and /p/SHORTCODE links in HTML or Markdown
+    for sc in re.findall(r'instagram\.com/(?:[A-Za-z0-9_.-]+/)?(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})', clean):
+        added += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+    for sc in re.findall(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})/', clean):
+        added += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+    return added
+
 def harvest_handle_all_existing_reels(handle, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog):
     count = 0
-    # Route 1: Embed & Captioned Embed HTML extraction
-    embed_urls = [
-        f"https://www.instagram.com/{handle}/embed/",
-        f"https://www.instagram.com/{handle}/embed/captioned/"
-    ]
-    for embed_url in embed_urls:
-        try:
-            r = requests.get(embed_url, headers=BROWSER_HEADERS, timeout=15)
-            if r.status_code == 200 and len(r.text) > 500:
-                clean_html = unescape_ig_payload(r.text)
-                pair_pattern = r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"[^{}]*?"video_url"\s*:\s*"(https?://[^"]+)"'
-                for match in re.finditer(pair_pattern, clean_html):
-                    sc, v_url = match.group(1), match.group(2)
-                    cid = f"ig_{sc}"
-                    if cid not in dead_shortcodes:
-                        append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
-                        if cid not in seen_shortcodes:
-                            seen_shortcodes.add(cid)
-                            catalog.append((cid, v_url, f"https://www.instagram.com/reel/{sc}/", handle))
-                            count += 1
-                video_node_scs = re.findall(r'"__typename"\s*:\s*"GraphVideo"[^{}]*?"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean_html)
-                video_node_scs += re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"[^{}]*?"is_video"\s*:\s*true', clean_html)
-                video_node_scs += re.findall(r'/reel/([A-Za-z0-9_-]{8,15})/', clean_html)
-                for sc in video_node_scs:
-                    if sc in ("embed", "captioned", handle):
-                        continue
-                    cid = f"ig_{sc}"
-                    if cid not in dead_shortcodes:
-                        append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
-                        if cid not in seen_shortcodes:
-                            seen_shortcodes.add(cid)
-                            catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
-                            count += 1
-        except Exception:
-            continue
+    session = requests.Session()
 
-    # Route 2: Deep Reels Tab & Profile Timeline discovery via yt-dlp flat extraction
-    for profile_url in [f"https://www.instagram.com/{handle}/reels/", f"https://www.instagram.com/{handle}/"]:
+    # LAYER 1: Instagram Embed & Captioned Embed (Unrestricted JSON + HTML parser)
+    for embed_url in [f"https://www.instagram.com/{handle}/embed/captioned/", f"https://www.instagram.com/{handle}/embed/"]:
         try:
-            ydl_opts = {
-                "extract_flat": True,
-                "playlistend": 60,
-                "quiet": True,
-                "no_warnings": True,
-                "logger": SilentYTDLLogger(),
-                "socket_timeout": 12,
-                "http_headers": BROWSER_HEADERS
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(profile_url, download=False)
-                entries = (info or {}).get("entries") or []
-                for entry in entries:
-                    if not entry:
-                        continue
-                    sc = entry.get("id") or ""
-                    e_url = entry.get("url") or entry.get("webpage_url") or ""
-                    if not sc and e_url:
-                        m = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})', e_url)
-                        if m:
-                            sc = m.group(1)
-                    if sc and len(sc) >= 8:
-                        cid = f"ig_{sc}"
-                        if cid not in dead_shortcodes:
-                            append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
-                            if cid not in seen_shortcodes:
-                                seen_shortcodes.add(cid)
-                                catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
-                                count += 1
+            headers = dict(BROWSER_HEADERS)
+            headers["User-Agent"] = random.choice(USER_AGENTS)
+            r = session.get(embed_url, headers=headers, timeout=15)
+            if r.status_code == 200 and len(r.text) > 400:
+                count += extract_all_shortcodes_from_text(handle, r.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
         except Exception:
-            continue
+            pass
+
+    # LAYER 2: Instagram Web Profile Info API + GraphQL 50-Reel Deep Pagination
+    try:
+        api_headers = {
+            "User-Agent": random.choice(USER_AGENTS),
+            "X-IG-App-ID": "936619743392459",
+            "X-ASBD-ID": "129477",
+            "X-IG-WWW-Claim": "0",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "*/*",
+            "Referer": f"https://www.instagram.com/{handle}/"
+        }
+        info_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
+        r = session.get(info_url, headers=api_headers, timeout=15)
+        if r.status_code == 200 and len(r.text) > 200:
+            count += extract_all_shortcodes_from_text(handle, r.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+            uid_match = re.search(r'"id"\s*:\s*"(\d{5,25})"', r.text)
+            if uid_match:
+                ig_uid = uid_match.group(1)
+                variables = json.dumps({"id": ig_uid, "first": 50})
+                for q_hash in ["69cba40317214236af40e7efa697781d", "e769aa130647d2354c40ea6a439bfc08"]:
+                    gql_url = f"https://www.instagram.com/graphql/query/?query_hash={q_hash}&variables={urllib.parse.quote(variables)}"
+                    gr = session.get(gql_url, headers=api_headers, timeout=15)
+                    if gr.status_code == 200 and len(gr.text) > 200:
+                        count += extract_all_shortcodes_from_text(handle, gr.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+    except Exception:
+        pass
+
+    # LAYER 3: Public Web Mirrors & Jina Reader Proxy (Bypasses Datacenter IP Blocks)
+    mirror_urls = [
+        f"https://r.jina.ai/https://www.instagram.com/{handle}/reels/",
+        f"https://r.jina.ai/https://www.instagram.com/{handle}/",
+        f"https://www.ddinstagram.com/u/{handle}"
+    ]
+    for m_url in mirror_urls:
+        if count >= 12:
+            break
+        try:
+            r = requests.get(m_url, headers=BROWSER_HEADERS, timeout=14)
+            if r.status_code == 200 and len(r.text) > 200:
+                count += extract_all_shortcodes_from_text(handle, r.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+        except Exception:
+            pass
+
+    # LAYER 4: yt-dlp Flat Profile Extraction
+    if count < 8:
+        for profile_url in [f"https://www.instagram.com/{handle}/reels/", f"https://www.instagram.com/{handle}/"]:
+            try:
+                ydl_opts = {
+                    "extract_flat": True,
+                    "playlistend": 60,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "logger": SilentYTDLLogger(),
+                    "socket_timeout": 12,
+                    "http_headers": BROWSER_HEADERS
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(profile_url, download=False)
+                    for entry in (info or {}).get("entries") or []:
+                        if not entry:
+                            continue
+                        sc = entry.get("id") or ""
+                        e_url = entry.get("url") or entry.get("webpage_url") or ""
+                        if not sc and e_url:
+                            m = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})', e_url)
+                            if m:
+                                sc = m.group(1)
+                        count += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+            except Exception:
+                continue
 
     return count
 
@@ -386,20 +427,22 @@ def build_master_reel_catalog_once(dead_shortcodes):
     # 1. Harvest live reels across all 7 target accounts
     for handle in clean_handles:
         c = harvest_handle_all_existing_reels(handle, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-        log(f"[CATALOG] Harvested {c} video Reels from @{handle}")
+        log(f"[CATALOG] Harvested {c} new Reels from @{handle}")
+        time.sleep(random.uniform(1.0, 2.2))
 
-    # 2. Load all previously discovered existing Reels belonging to these exact 7 accounts
+    # 2. Load all previously discovered Reels from persistent pool for these 7 accounts
+    restored = 0
     for entry in discovered_pool_set:
         if "|" in entry:
             h, cid = entry.split("|", 1)
-            h = h.strip().lower()
-            cid = cid.strip()
+            h, cid = h.strip().lower(), cid.strip()
             if h in active_handles_set and cid.startswith("ig_") and cid not in seen_shortcodes and cid not in dead_shortcodes:
                 sc = cid[3:]
                 seen_shortcodes.add(cid)
                 catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", h))
+                restored += 1
 
-    # 3. Also include any manual backup links from reel_links.txt
+    # 3. Optional manual backup links if reel_links.txt has any
     if os.path.exists(LINKS_FILE):
         try:
             with open(LINKS_FILE, "r", encoding="utf-8") as f:
@@ -411,9 +454,8 @@ def build_master_reel_catalog_once(dead_shortcodes):
         except Exception:
             pass
 
-    # Purely shuffle the entire combined catalog so every target account has equal random probability
     random.shuffle(catalog)
-    log(f"[CATALOG READY] {len(catalog)} total unique Reels pooled randomly across {len(clean_handles)} target accounts.")
+    log(f"[CATALOG READY] {len(catalog)} total unique Reels available across your 7 sources ({restored} loaded from saved pool).")
     return catalog
 
 def try_route_embed_page(shortcode, out_path):
@@ -525,12 +567,8 @@ def download_instagram_reel_all_routes(clean_url, out_path):
     return False
 
 def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, downloaded_cache, dead_shortcodes, used_in_wave):
-    """
-    Picks a completely random reel from all existing reels across all 7 scraped accounts.
-    Strictly enforces that the same account NEVER reposts a reel it has already posted.
-    """
     os.makedirs(ASSETS_DIR, exist_ok=True)
-    # Strictly filter out any reel already posted on this specific account
+    # Never repost the same reel on the same account
     eligible = [
         item for item in master_catalog
         if item[0] not in dead_shortcodes and f"{ig_user_id}:{item[0]}" not in posted_history
@@ -539,7 +577,6 @@ def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, dow
         log(f"[HISTORY GUARD] Account {ig_user_id} has already posted all currently discovered reels.")
         return None, None
 
-    # Pure random shuffle across all scraping accounts (preferring reels not yet used in the current wave)
     not_used_this_wave = [item for item in eligible if item[0] not in used_in_wave]
     already_used_this_wave = [item for item in eligible if item[0] in used_in_wave]
     random.shuffle(not_used_this_wave)
@@ -593,7 +630,7 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 5. DEEP PHASH BREAKER + 3-4s GOLD FINAL LINES + UNCUT VOICEOVER
+# 5. DEEP PHASH BREAKER + 4s GOLD FINAL LINES + UNCUT VOICEOVER
 # ==========================================
 def ensure_stylish_luxury_font():
     if os.path.exists(STYLISH_FONT_PATH) and os.path.getsize(STYLISH_FONT_PATH) > 15000:
@@ -663,10 +700,9 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     except Exception:
         has_vo = False
 
-    # Guarantee ARC Final Lines last AT LEAST 3.8 to 4.5+ seconds AND 0.85s longer than the voiceover
+    # Guarantees ARC Final Lines stay on screen at least 4.0s and voiceover finishes completely
     outro_duration = max(4.0, round(vo_dur + 0.85, 2))
 
-    # Deep pHash Breaker parameters (no hflip so text stays readable)
     speed_factor = round(random.uniform(1.03, 1.07), 3)
     pts_mult = round(1.0 / speed_factor, 4)
     zoom_w = random.randint(1124, 1168)
@@ -685,7 +721,6 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     else:
         final_duration = round(random.uniform(12.0, 14.2), 2)
 
-    # Ensure Top Gold Hook gets at least 6.0s before the 4.0s+ Gold Final Lines & Voiceover begin
     min_needed_dur = round(outro_duration + 6.0, 2)
     if final_duration < min_needed_dur:
         final_duration = min(15.5, min_needed_dur)
@@ -856,7 +891,7 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
 # ==========================================
 def main():
     wave_start_ts = time.time()
-    log("=== ARC 1-HOUR CADENCE ENGINE STARTED ===")
+    log("=== ARC 1-HOUR AUTONOMOUS HARVESTER ENGINE STARTED ===")
     ensure_edge_tts_installed()
     active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
     if not active_tokens:
@@ -918,12 +953,10 @@ def main():
                     except Exception:
                         pass
 
-            # Randomized spacing calculated to fit all accounts smoothly inside the 1-hour bracket
             remaining_nodes = total_nodes - 1 - index
             if remaining_nodes > 0:
                 elapsed_so_far = time.time() - wave_start_ts
                 time_left_in_window = max(0.0, TARGET_WAVE_WINDOW_SECONDS - elapsed_so_far)
-                # Estimate ~52s of processing time per remaining account
                 estimated_work_time = remaining_nodes * 52.0
                 available_sleep_pool = max(remaining_nodes * 15.0, time_left_in_window - estimated_work_time)
                 avg_sleep = available_sleep_pool / remaining_nodes
