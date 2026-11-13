@@ -34,7 +34,7 @@ def ensure_edge_tts_installed():
             log(f"[OVERFLOW] edge-tts install skipped: {e}")
 
 # ==========================================
-# 1. CORE CONFIGURATION & TARGET ACCOUNTS
+# 1. CORE 1-HOUR BRACKET CONFIGURATION
 # ==========================================
 META_TOKENS = [
     os.getenv("META_TOKEN_1"),
@@ -42,26 +42,28 @@ META_TOKENS = [
 ]
 
 GRAPH_API_VERSION = "v20.0"
+
+# All connected accounts post 1 Reel per 1-hour wave
 ACCOUNTS_PER_WAVE = 23
-MIN_COOLDOWN_SECONDS = 3
-MAX_COOLDOWN_SECONDS = 7
+# Target 3,180s (53 mins) across all accounts so the entire wave + git save finishes inside 1 hour (3,600s)
+TARGET_WAVE_WINDOW_SECONDS = 3180
 
 LINKS_FILE = "reel_links.txt"
 HISTORY_FILE = "arc_ig_history.txt"
 DEAD_SHORTCODES_FILE = "arc_dead_shortcodes.txt"
-CURSOR_FILE = "account_cursor.txt"
+DISCOVERED_POOL_FILE = "arc_discovered_pool.txt"
 ASSETS_DIR = "assets"
 STYLISH_FONT_PATH = "Cinzel-Bold.ttf"
 
+# Your exact 7 scraping accounts (intensecorb deduplicated automatically)
 TARGET_IG_ACCOUNTS_TO_SCRAPE = [
-    "https://www.instagram.com/worthy?utm_source=ig_web_button_share_sheet&rpxt=ZDNlZDc0MzIxNw==",
-    "https://www.instagram.com/aureonlux?utm_source=ig_web_button_share_sheet&dlrf=ZDNlZDc0MzIxNw==",
-    "Luxurvault",
-    "Luxurcore",
-    "toptierpath",
-    "toptierclasy",
-    "toptierclassy",
-    "leornabs"
+    "https://www.instagram.com/luxereturns?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
+    "https://www.instagram.com/luxuriaaura?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
+    "https://www.instagram.com/intensecorb?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
+    "https://www.instagram.com/heritageclass?utm_source=ig_web_button_share_sheet&xtok=ZDNlZDc0MzIxNw==",
+    "https://www.instagram.com/worthy?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
+    "https://www.instagram.com/luxurcore?utm_source=ig_web_button_share_sheet&rpxt=ZDNlZDc0MzIxNw==",
+    "https://www.instagram.com/toptierclasy?utm_source=ig_web_button_share_sheet&exln=ZDNlZDc0MzIxNw=="
 ]
 
 BROWSER_HEADERS = {
@@ -91,13 +93,6 @@ ARC_VOICEOVER_SCRIPTS = [
     "Escape the rat race and build real digital income. Tap the bio link and join ARC now."
 ]
 
-HOOK_HIGH_CONTRAST_COLORS = [
-    "0xFFE600",
-    "0x00F5D4",
-    "0xFF3B30",
-    "0x00FF66"
-]
-
 ARC_TOP_HOOKS = [
     "Y O U   A R E   T O O   S M A R T   T O   S T A Y   B R O K E",
     "Y O U R   S A L A R Y   I S   B U Y I N G   Y O U R   S I L E N C E",
@@ -117,50 +112,59 @@ ARC_UNIFIED_MESSAGES = [
     (hook, ARC_FINAL_LINE_1, ARC_FINAL_LINE_2) for hook in ARC_TOP_HOOKS
 ]
 
-ARC_AUTHORITY_CAPTIONS = [
-    (
-        "What is ARC?\n\n"
-        "ARC is a private online wealth and digital business system built for men ready to create independent online income from scratch.\n"
-        "• Proven step-by-step digital income blueprints\n"
-        "• Direct private network of high-level builders & operators\n\n"
-        "-> Join ARC now via the link in @ARCBLOODLINE30 bio.\n\n"
-        "Niche & Category: Luxury Lifestyle • Wealth Creation • Digital Entrepreneurship • Financial Freedom\n"
-        "#luxurylifestyle #wealthmindset #entrepreneurship #digitalbusiness #financialfreedom #oldmoney #successmindset #onlineincome"
-    ),
-    (
-        "Stop watching other men live the life you were meant to build.\n\n"
-        "Inside ARC, you unlock the exact digital business models, scalable systems, and private execution network to build real online cashflow.\n"
-        "No fluff. Pure execution.\n\n"
-        "-> Tap @ARCBLOODLINE30 and click the bio link to enter ARC right now.\n\n"
-        "Niche & Category: Billionaire Mindset • Online Business • High-Status Living • Wealth Systems\n"
-        "#billionairemindset #luxurycars #wealthbuilding #onlinebusiness #menwithclass #financialindependence #entrepreneur #success"
-    ),
-    (
-        "Why 99% of men stay trapped in the paycheck cycle:\n\n"
-        "They work hard inside someone else's system instead of owning digital leverage.\n"
-        "ARC gives you the complete online wealth blueprint and private community to take control of your income.\n\n"
-        "-> Enter ARC right now via @ARCBLOODLINE30 bio.\n\n"
-        "Niche & Category: Men's Self-Improvement • Wealth Architecture • Luxury Aesthetic • Business Systems\n"
-        "#mindset #wealth #luxury #businessowner #millionairemindset #selfimprovement #oldmoneyaesthetic #moneymindset"
-    ),
-    (
-        "Read this before you scroll past:\n\n"
-        "If you repeat the last 6 months for the next 5 years, nothing changes.\n"
-        "ARC was built for ambitious men ready to lock in and build automated digital income alongside serious operators.\n\n"
-        "-> Claim your spot in @ARCBLOODLINE30 bio before doors close.\n\n"
-        "Niche & Category: Private Wealth Network • Digital Assets • Luxury Motivation • Financial Sovereignty\n"
-        "#luxurylife #wealthcreation #businessmindset #entrepreneurlife #successdriven #financialfreedom #richmindset #luxury"
-    )
+CAPTION_OPENERS = [
+    "Most men spend their best years building someone else's dream.",
+    "Hard work alone never made anyone wealthy—leverage and systems do.",
+    "If you repeat the last 6 months for the next 5 years, nothing changes.",
+    "The difference between wishing and owning is the system you execute daily.",
+    "Stop watching from the sidelines while operators build real digital assets.",
+    "Freedom isn't bought with a monthly salary. It's built with online cashflow.",
+    "Nobody is coming to hand you the blueprint. You have to step up and claim it.",
+    "Comfort is the most expensive trap a man can fall into."
+]
+
+CAPTION_BODIES = [
+    "Inside ARC, we break down the exact digital wealth architecture to build independent online income from scratch.",
+    "ARC gives you the private network, scalable digital models, and step-by-step execution blueprint.",
+    "We built ARC for ambitious men ready to replace guesswork with a proven online income system.",
+    "Step inside the private ARC ecosystem and start building real digital leverage alongside serious operators."
+]
+
+CAPTION_CTAS = [
+    "Tap the link in bio to enter ARC today.",
+    "Check @arcbloodline30 bio to claim your spot inside ARC.",
+    "Access the private portal via @arcbloodline30 bio right now.",
+    "Use the main link in bio (or visit @arcbloodline30) before doors close."
+]
+
+NICHE_TAGS_POOL = [
+    "#luxurylifestyle", "#wealthmindset", "#entrepreneurship", "#digitalbusiness",
+    "#financialfreedom", "#oldmoney", "#successmindset", "#onlineincome",
+    "#billionairemindset", "#wealthbuilding", "#onlinebusiness", "#menwithclass",
+    "#financialindependence", "#mindset", "#businessowner", "#millionairemindset",
+    "#selfimprovement", "#oldmoneyaesthetic", "#moneymindset", "#wealthcreation"
+]
+
+NICHE_LABELS = [
+    "Niche: Wealth Architecture • Digital Business • Luxury Mindset",
+    "Category: Online Income Systems • Men's Self-Improvement • High-Status Living",
+    "Focus: Financial Sovereignty • Digital Entrepreneurship • Private Wealth Network",
+    "Topic: Scalable Online Assets • Wealth Creation • Executive Mindset"
 ]
 
 def generate_unique_caption_batch(count):
-    pool = list(ARC_AUTHORITY_CAPTIONS)
-    random.shuffle(pool)
-    micro_tags = ["", "\n⚡", "\n🗝️", "\n▪️"]
-    return [f"{pool[i % len(pool)]}{random.choice(micro_tags)}".strip() for i in range(count)]
+    captions = []
+    for _ in range(count):
+        opener = random.choice(CAPTION_OPENERS)
+        body = random.choice(CAPTION_BODIES)
+        cta = random.choice(CAPTION_CTAS)
+        label = random.choice(NICHE_LABELS)
+        tags = " ".join(random.sample(NICHE_TAGS_POOL, k=4))
+        captions.append(f"{opener}\n\n{body}\n\n{cta}\n\n{label}\n{tags}")
+    return captions
 
 # ==========================================
-# 3. VIDEO-ONLY SCRAPER (NO SONG CLIPS / NO PHOTO POSTS)
+# 3. DEEP MULTI-ROUTE HARVESTER (ALL EXISTING REELS)
 # ==========================================
 def unescape_ig_payload(raw_text):
     if not raw_text:
@@ -222,25 +226,14 @@ def append_to_set_file(filepath, identifier, memory_set):
         except Exception:
             pass
 
-def select_round_robin_accounts(all_accounts, batch_size):
+def select_hourly_ordered_accounts(all_accounts, batch_size):
+    """
+    Keeps a consistent account sequence across every 1-hour wave so Account #k
+    always posts at approximately the same minute mark every hour (~60 mins apart).
+    """
     sorted_accs = sorted(all_accounts, key=lambda x: str(x["ig_user_id"]))
-    total = len(sorted_accs)
-    start_idx = 0
-    if os.path.exists(CURSOR_FILE):
-        try:
-            with open(CURSOR_FILE, "r", encoding="utf-8") as f:
-                start_idx = int(f.read().strip()) % total
-        except Exception:
-            start_idx = 0
-    selected = [sorted_accs[(start_idx + i) % total] for i in range(min(batch_size, total))]
-    next_cursor = (start_idx + len(selected)) % total
-    try:
-        with open(CURSOR_FILE, "w", encoding="utf-8") as f:
-            f.write(str(next_cursor))
-    except Exception:
-        pass
-    random.shuffle(selected)
-    log(f"[FLEET WAVE] Selected & randomized {len(selected)}/{total} accounts for this 30-min cycle.")
+    selected = sorted_accs[:min(batch_size, len(sorted_accs))]
+    log(f"[HOURLY WAVE] Locked {len(selected)} accounts in 1-hour cadence order.")
     return selected
 
 def get_media_duration(input_path):
@@ -301,8 +294,9 @@ def save_and_verify_stream(raw_url, out_path, headers=None):
         pass
     return False
 
-def harvest_handle_videos_only(handle, seen_shortcodes, dead_shortcodes, catalog):
+def harvest_handle_all_existing_reels(handle, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog):
     count = 0
+    # Route 1: Embed & Captioned Embed HTML extraction
     embed_urls = [
         f"https://www.instagram.com/{handle}/embed/",
         f"https://www.instagram.com/{handle}/embed/captioned/"
@@ -316,10 +310,12 @@ def harvest_handle_videos_only(handle, seen_shortcodes, dead_shortcodes, catalog
                 for match in re.finditer(pair_pattern, clean_html):
                     sc, v_url = match.group(1), match.group(2)
                     cid = f"ig_{sc}"
-                    if cid not in seen_shortcodes and cid not in dead_shortcodes:
-                        seen_shortcodes.add(cid)
-                        catalog.append((cid, v_url, f"https://www.instagram.com/reel/{sc}/", handle))
-                        count += 1
+                    if cid not in dead_shortcodes:
+                        append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
+                        if cid not in seen_shortcodes:
+                            seen_shortcodes.add(cid)
+                            catalog.append((cid, v_url, f"https://www.instagram.com/reel/{sc}/", handle))
+                            count += 1
                 video_node_scs = re.findall(r'"__typename"\s*:\s*"GraphVideo"[^{}]*?"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean_html)
                 video_node_scs += re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"[^{}]*?"is_video"\s*:\s*true', clean_html)
                 video_node_scs += re.findall(r'/reel/([A-Za-z0-9_-]{8,15})/', clean_html)
@@ -327,19 +323,83 @@ def harvest_handle_videos_only(handle, seen_shortcodes, dead_shortcodes, catalog
                     if sc in ("embed", "captioned", handle):
                         continue
                     cid = f"ig_{sc}"
-                    if cid not in seen_shortcodes and cid not in dead_shortcodes:
-                        seen_shortcodes.add(cid)
-                        catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
-                        count += 1
-            if count > 0:
-                break
+                    if cid not in dead_shortcodes:
+                        append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
+                        if cid not in seen_shortcodes:
+                            seen_shortcodes.add(cid)
+                            catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
+                            count += 1
         except Exception:
             continue
+
+    # Route 2: Deep Reels Tab & Profile Timeline discovery via yt-dlp flat extraction
+    for profile_url in [f"https://www.instagram.com/{handle}/reels/", f"https://www.instagram.com/{handle}/"]:
+        try:
+            ydl_opts = {
+                "extract_flat": True,
+                "playlistend": 60,
+                "quiet": True,
+                "no_warnings": True,
+                "logger": SilentYTDLLogger(),
+                "socket_timeout": 12,
+                "http_headers": BROWSER_HEADERS
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(profile_url, download=False)
+                entries = (info or {}).get("entries") or []
+                for entry in entries:
+                    if not entry:
+                        continue
+                    sc = entry.get("id") or ""
+                    e_url = entry.get("url") or entry.get("webpage_url") or ""
+                    if not sc and e_url:
+                        m = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})', e_url)
+                        if m:
+                            sc = m.group(1)
+                    if sc and len(sc) >= 8:
+                        cid = f"ig_{sc}"
+                        if cid not in dead_shortcodes:
+                            append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
+                            if cid not in seen_shortcodes:
+                                seen_shortcodes.add(cid)
+                                catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", handle))
+                                count += 1
+        except Exception:
+            continue
+
     return count
 
 def build_master_reel_catalog_once(dead_shortcodes):
     catalog = []
     seen_shortcodes = set()
+    discovered_pool_set = load_set_file(DISCOVERED_POOL_FILE)
+
+    clean_handles = []
+    for raw in TARGET_IG_ACCOUNTS_TO_SCRAPE:
+        h = extract_ig_handle(raw)
+        if h and h not in clean_handles:
+            clean_handles.append(h)
+
+    active_handles_set = set(clean_handles)
+    random.shuffle(clean_handles)
+
+    # 1. Harvest live reels across all 7 target accounts
+    for handle in clean_handles:
+        c = harvest_handle_all_existing_reels(handle, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+        log(f"[CATALOG] Harvested {c} video Reels from @{handle}")
+
+    # 2. Load all previously discovered existing Reels belonging to these exact 7 accounts
+    for entry in discovered_pool_set:
+        if "|" in entry:
+            h, cid = entry.split("|", 1)
+            h = h.strip().lower()
+            cid = cid.strip()
+            if h in active_handles_set and cid.startswith("ig_") and cid not in seen_shortcodes and cid not in dead_shortcodes:
+                sc = cid[3:]
+                seen_shortcodes.add(cid)
+                catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", h))
+
+    # 3. Also include any manual backup links from reel_links.txt
     if os.path.exists(LINKS_FILE):
         try:
             with open(LINKS_FILE, "r", encoding="utf-8") as f:
@@ -350,22 +410,11 @@ def build_master_reel_catalog_once(dead_shortcodes):
                         catalog.append((cid, "", clean_u, "reel_links.txt"))
         except Exception:
             pass
-    clean_handles = []
-    for raw in TARGET_IG_ACCOUNTS_TO_SCRAPE:
-        h = extract_ig_handle(raw)
-        if h and h not in clean_handles:
-            clean_handles.append(h)
-    random.shuffle(clean_handles)
-    for handle in clean_handles:
-        c = harvest_handle_videos_only(handle, seen_shortcodes, dead_shortcodes, catalog)
-        log(f"[CATALOG] Pulled {c} verified video Reels from @{handle}")
-    with_cdn = [x for x in catalog if x[1]]
-    without_cdn = [x for x in catalog if not x[1]]
-    random.shuffle(with_cdn)
-    random.shuffle(without_cdn)
-    combined = with_cdn + without_cdn
-    log(f"[CATALOG READY] {len(combined)} video Reels available ({len(with_cdn)} with direct HD stream)")
-    return combined
+
+    # Purely shuffle the entire combined catalog so every target account has equal random probability
+    random.shuffle(catalog)
+    log(f"[CATALOG READY] {len(catalog)} total unique Reels pooled randomly across {len(clean_handles)} target accounts.")
+    return catalog
 
 def try_route_embed_page(shortcode, out_path):
     for prefix in ["reel", "p"]:
@@ -476,20 +525,27 @@ def download_instagram_reel_all_routes(clean_url, out_path):
     return False
 
 def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, downloaded_cache, dead_shortcodes, used_in_wave):
+    """
+    Picks a completely random reel from all existing reels across all 7 scraped accounts.
+    Strictly enforces that the same account NEVER reposts a reel it has already posted.
+    """
     os.makedirs(ASSETS_DIR, exist_ok=True)
+    # Strictly filter out any reel already posted on this specific account
     eligible = [
         item for item in master_catalog
         if item[0] not in dead_shortcodes and f"{ig_user_id}:{item[0]}" not in posted_history
     ]
     if not eligible:
-        eligible = [item for item in master_catalog if item[0] not in dead_shortcodes]
-    fresh_with_cdn = [item for item in eligible if item[0] not in used_in_wave and item[1]]
-    fresh_no_cdn = [item for item in eligible if item[0] not in used_in_wave and not item[1]]
-    used_already = [item for item in eligible if item[0] in used_in_wave]
-    random.shuffle(fresh_with_cdn)
-    random.shuffle(fresh_no_cdn)
-    random.shuffle(used_already)
-    candidates = fresh_with_cdn + fresh_no_cdn + used_already
+        log(f"[HISTORY GUARD] Account {ig_user_id} has already posted all currently discovered reels.")
+        return None, None
+
+    # Pure random shuffle across all scraping accounts (preferring reels not yet used in the current wave)
+    not_used_this_wave = [item for item in eligible if item[0] not in used_in_wave]
+    already_used_this_wave = [item for item in eligible if item[0] in used_in_wave]
+    random.shuffle(not_used_this_wave)
+    random.shuffle(already_used_this_wave)
+    candidates = not_used_this_wave + already_used_this_wave
+
     for canonical_id, media_url, permalink, source_handle in candidates:
         if canonical_id in downloaded_cache and os.path.exists(downloaded_cache[canonical_id]):
             used_in_wave.add(canonical_id)
@@ -510,7 +566,7 @@ def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, dow
     return None, None
 
 # ==========================================
-# 5. GRAPH API ACCOUNT DISCOVERY
+# 4. GRAPH API ACCOUNT DISCOVERY
 # ==========================================
 def get_connected_instagram_accounts(token):
     url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/accounts"
@@ -537,7 +593,7 @@ def get_connected_instagram_accounts(token):
     return accounts
 
 # ==========================================
-# 6. ULTRA-HD GOLD STYLISH FONT & UNCUT AI VOICEOVER ENGINE
+# 5. DEEP PHASH BREAKER + 3-4s GOLD FINAL LINES + UNCUT VOICEOVER
 # ==========================================
 def ensure_stylish_luxury_font():
     if os.path.exists(STYLISH_FONT_PATH) and os.path.getsize(STYLISH_FONT_PATH) > 15000:
@@ -577,7 +633,7 @@ def generate_neural_voiceover(out_mp3_path):
                 trim_cmd = [
                     "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                     "-i", raw_vo,
-                    "-af", "silenceremove=start_periods=1:start_silence=0.05:start_threshold=-45dB",
+                    "-af", "silenceremove=start_periods=1:start_silence=0.04:start_threshold=-45dB",
                     out_mp3_path
                 ]
                 subprocess.run(trim_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
@@ -597,7 +653,7 @@ def generate_neural_voiceover(out_mp3_path):
 def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     vo_path = f"vo_temp_{node_idx}_{random.randint(100,999)}.mp3"
     has_vo = False
-    vo_dur = 4.2
+    vo_dur = 3.8
     try:
         has_vo = generate_neural_voiceover(vo_path)
         if has_vo:
@@ -607,19 +663,34 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     except Exception:
         has_vo = False
 
-    raw_dur = get_media_duration(input_path)
-    if 11.0 <= raw_dur <= 15.0:
+    # Guarantee ARC Final Lines last AT LEAST 3.8 to 4.5+ seconds AND 0.85s longer than the voiceover
+    outro_duration = max(4.0, round(vo_dur + 0.85, 2))
+
+    # Deep pHash Breaker parameters (no hflip so text stays readable)
+    speed_factor = round(random.uniform(1.03, 1.07), 3)
+    pts_mult = round(1.0 / speed_factor, 4)
+    zoom_w = random.randint(1124, 1168)
+    zoom_h = int(zoom_w * 1920 / 1080)
+    crop_x = random.randint(8, zoom_w - 1080 - 8)
+    crop_y = random.randint(12, zoom_h - 1920 - 12)
+    contrast_val = round(random.uniform(1.03, 1.07), 2)
+    sat_val = round(random.uniform(1.04, 1.10), 2)
+    gamma_val = round(random.uniform(0.96, 1.04), 2)
+
+    raw_dur = get_media_duration(input_path) / speed_factor
+    if 11.5 <= raw_dur <= 15.0:
         final_duration = round(raw_dur, 2)
     elif raw_dur > 15.0:
         final_duration = round(random.uniform(12.5, 15.0), 2)
     else:
-        final_duration = round(random.uniform(11.5, 13.8), 2)
+        final_duration = round(random.uniform(12.0, 14.2), 2)
 
-    min_needed_dur = round(vo_dur + 6.0, 2)
+    # Ensure Top Gold Hook gets at least 6.0s before the 4.0s+ Gold Final Lines & Voiceover begin
+    min_needed_dur = round(outro_duration + 6.0, 2)
     if final_duration < min_needed_dur:
-        final_duration = min(15.0, min_needed_dur)
+        final_duration = min(15.5, min_needed_dur)
 
-    pitch_start = round(max(4.5, final_duration - vo_dur - 0.55), 2)
+    pitch_start = round(final_duration - outro_duration, 2)
     pitch_delay_ms = int(pitch_start * 1000)
 
     epoch_jitter = int(time.time()) - random.randint(600, 259200)
@@ -633,9 +704,10 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
     band_y = f"(h/2)-96+{center_y_shift}"
 
     vf_chain = (
-        f"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,"
-        f"crop=1080:1920,fps=30,"
-        f"eq=contrast=1.04:saturation=1.06,"
+        f"setpts={pts_mult}*PTS,"
+        f"scale={zoom_w}:{zoom_h}:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,"
+        f"crop=1080:1920:{crop_x}:{crop_y},fps=30,"
+        f"eq=contrast={contrast_val}:saturation={sat_val}:gamma={gamma_val},"
         f"unsharp=lx=5:ly=5:la=0.65:cx=3:cy=3:ca=0.15,"
         f"drawtext=fontfile={font_path}:text='{top_hook}':expansion=none:"
         f"fontcolor={GOLD_HEX}:fontsize=26:shadowcolor=black@0.98:shadowx=2:shadowy=2:"
@@ -652,7 +724,7 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
         f"x=(w-text_w)/2:y={c2_y}:enable='gte(t,{pitch_start})'"
     )
 
-    fade_out_st = round(max(1.0, final_duration - 0.30), 2)
+    fade_out_st = round(max(1.0, final_duration - 0.25), 2)
     has_orig_audio = video_has_audio_stream(input_path)
 
     try:
@@ -660,15 +732,16 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
             filter_complex = (
                 f"[0:v]{vf_chain}[vout];"
                 f"[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-                f"volume=1.0:enable='lt(t,{pitch_start})',volume=0.20:enable='gte(t,{pitch_start})'[bg];"
+                f"atempo={speed_factor},highpass=f=55,lowpass=f=15200,"
+                f"volume=1.0:enable='lt(t,{pitch_start})',volume=0.18:enable='gte(t,{pitch_start})'[bg];"
                 f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-                f"adelay={pitch_delay_ms}|{pitch_delay_ms},volume=2.10,apad[vo];"
+                f"adelay={pitch_delay_ms}|{pitch_delay_ms},volume=2.20,apad=whole_dur={final_duration}[vo];"
                 f"[bg][vo]amix=inputs=2:duration=first:dropout_transition=0,"
-                f"afade=t=out:st={fade_out_st}:d=0.30[aout]"
+                f"afade=t=out:st={fade_out_st}:d=0.25[aout]"
             )
             cmd = [
                 "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-                "-stream_loop", "-1", "-t", str(final_duration), "-i", input_path,
+                "-stream_loop", "-1", "-t", str(round(final_duration * speed_factor + 1.5, 2)), "-i", input_path,
                 "-i", vo_path,
                 "-filter_complex", filter_complex,
                 "-map", "[vout]", "-map", "[aout]",
@@ -686,7 +759,7 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
 
         fallback_cmd = [
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-stream_loop", "-1", "-t", str(final_duration), "-i", input_path,
+            "-stream_loop", "-1", "-t", str(round(final_duration * speed_factor + 1.5, 2)), "-i", input_path,
             "-vf", vf_chain,
             "-t", str(final_duration),
             "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.2",
@@ -706,8 +779,9 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
             except Exception:
                 pass
     return output_path
-    # ==========================================
-# 7. RELAY UPLOAD & GRAPH API PUBLISH
+
+# ==========================================
+# 6. RELAY UPLOAD & GRAPH API PUBLISH
 # ==========================================
 def upload_for_meta_download(file_path):
     headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Accept-Language": "en-US,en;q=0.9"}
@@ -775,13 +849,14 @@ def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
     publish_res = requests.post(publish_url, data={"creation_id": creation_id, "access_token": token}, timeout=(10, 30)).json()
     if "id" not in publish_res:
         raise Exception(f"Publish failed: {publish_res}")
-    log(f"[SUCCESS] PUBLISHED ULTRA-HD REEL! Media ID: {publish_res['id']}")
+    log(f"[SUCCESS] PUBLISHED 1-HR CADENCE REEL! Media ID: {publish_res['id']}")
 
 # ==========================================
-# 8. MAIN EXECUTION
+# 7. MAIN EXECUTION (DYNAMIC 1-HOUR BRACKET PACING)
 # ==========================================
 def main():
-    log("=== ARC ULTRA-HD GOLD PUBLISHING ENGINE STARTED ===")
+    wave_start_ts = time.time()
+    log("=== ARC 1-HOUR CADENCE ENGINE STARTED ===")
     ensure_edge_tts_installed()
     active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
     if not active_tokens:
@@ -804,16 +879,18 @@ def main():
         log("[OVERFLOW] Zero Instagram Business accounts discovered. Exiting cleanly.")
         return
 
-    wave_accounts = select_round_robin_accounts(all_accounts, ACCOUNTS_PER_WAVE)
-    caption_batch = generate_unique_caption_batch(len(wave_accounts))
+    wave_accounts = select_hourly_ordered_accounts(all_accounts, ACCOUNTS_PER_WAVE)
+    total_nodes = len(wave_accounts)
+    caption_batch = generate_unique_caption_batch(total_nodes)
     master_catalog = build_master_reel_catalog_once(dead_shortcodes)
     downloaded_cache = {}
     used_in_wave = set()
     success_count = 0
+
     try:
         for index, acc in enumerate(wave_accounts):
             ig_uid = str(acc["ig_user_id"])
-            log(f"\n--- NODE [{index+1}/{len(wave_accounts)}]: {acc['page_name']} ({ig_uid}) ---")
+            log(f"\n--- NODE [{index+1}/{total_nodes}]: {acc['page_name']} ({ig_uid}) ---")
             mutated_output = f"arc_uhd_gold_{index}.mp4"
             try:
                 chosen_id, source_video = pick_random_reel_for_account(
@@ -825,7 +902,7 @@ def main():
                     used_in_wave
                 )
                 if not source_video or not os.path.exists(source_video):
-                    log(f"[OVERFLOW] No downloadable 10-15s Reel found for {acc['page_name']}, moving to next node...")
+                    log(f"[OVERFLOW] No unposted Reel available for {acc['page_name']}, moving to next node...")
                     continue
                 mutate_video_for_account(source_video, mutated_output, font_path, node_idx=index)
                 public_url = upload_for_meta_download(mutated_output)
@@ -840,9 +917,20 @@ def main():
                         os.remove(mutated_output)
                     except Exception:
                         pass
-            if index < len(wave_accounts) - 1:
-                cooldown_sec = random.randint(MIN_COOLDOWN_SECONDS, MAX_COOLDOWN_SECONDS)
-                log(f"[TIMER] Waiting {cooldown_sec}s before next account...")
+
+            # Randomized spacing calculated to fit all accounts smoothly inside the 1-hour bracket
+            remaining_nodes = total_nodes - 1 - index
+            if remaining_nodes > 0:
+                elapsed_so_far = time.time() - wave_start_ts
+                time_left_in_window = max(0.0, TARGET_WAVE_WINDOW_SECONDS - elapsed_so_far)
+                # Estimate ~52s of processing time per remaining account
+                estimated_work_time = remaining_nodes * 52.0
+                available_sleep_pool = max(remaining_nodes * 15.0, time_left_in_window - estimated_work_time)
+                avg_sleep = available_sleep_pool / remaining_nodes
+                jitter_min = max(12, int(avg_sleep * 0.65))
+                jitter_max = max(jitter_min + 10, min(165, int(avg_sleep * 1.35)))
+                cooldown_sec = random.randint(jitter_min, jitter_max)
+                log(f"[1-HR PACING] Randomized spacing cooldown: {cooldown_sec}s before next account...")
                 time.sleep(cooldown_sec)
     finally:
         for cached_file in downloaded_cache.values():
@@ -851,7 +939,7 @@ def main():
                     os.remove(cached_file)
                 except Exception:
                     pass
-    log(f"\n=== WAVE COMPLETE: {success_count}/{len(wave_accounts)} ULTRA-HD GOLD REELS PUBLISHED ===")
+    log(f"\n=== HOURLY WAVE COMPLETE: {success_count}/{total_nodes} REELS PUBLISHED IN {int(time.time() - wave_start_ts)}s ===")
 
 if __name__ == "__main__":
     try:
