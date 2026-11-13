@@ -1,17 +1,19 @@
-name: ARC 6-Hour Precision Sprint
+name: ARC 1-Hour Precision Engine
 
 on:
+  schedule:
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 concurrency:
-  group: arc-unstoppable-sprint
+  group: arc-hourly-fleet-wave
   cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  unstoppable-engine:
+  hourly-engine:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -33,7 +35,7 @@ jobs:
           pip install --upgrade pip
           pip install requests yt-dlp edge-tts
 
-      - name: The 30-Minute Precision Engine
+      - name: The 1-Hour Precision Engine (5 Continuous Hourly Waves)
         env:
           META_TOKEN_1: ${{ secrets.META_TOKEN_1 }}
           META_TOKEN_2: ${{ secrets.META_TOKEN_2 }}
@@ -42,47 +44,47 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "ARC Fleet Engine"
           
-          # 11 waves * 30 mins = 330 mins (fits safely inside GitHub's 360-min max limit)
-          for i in {1..11}; do
-            echo "🔥 === STARTING PRECISION WAVE $i/11 ==="
+          # 5 waves * 60 mins = 300 mins (fits safely inside GitHub's 360-min max runner limit)
+          for i in {1..5}; do
+            echo "🔥 === STARTING 1-HOUR WAVE $i/5 ==="
             START_TIME=$(date +%s)
             
-            # 1. Run the Python Publisher
+            # 1. Run the Python Publisher (Paced across ~53 mins with randomized spacing)
             python arc_engine.py || true
             
-            # 2. Securely Save Ledger
-            echo "💾 === SAVING LEDGER FOR WAVE $i ==="
-            touch arc_ig_history.txt arc_dead_shortcodes.txt account_cursor.txt reel_links.txt
+            # 2. Securely Save Ledger & Discovered Reel Pool (Zero Merge Conflicts)
+            echo "💾 === SAVING LEDGER FOR HOURLY WAVE $i ==="
+            touch arc_ig_history.txt arc_dead_shortcodes.txt arc_discovered_pool.txt reel_links.txt
             cp arc_ig_history.txt /tmp/arc_ig_history.bak
             cp arc_dead_shortcodes.txt /tmp/arc_dead_shortcodes.bak
-            cp account_cursor.txt /tmp/account_cursor.bak
+            cp arc_discovered_pool.txt /tmp/arc_discovered_pool.bak
             
             git fetch origin main
             git reset --hard origin/main
             
-            touch arc_ig_history.txt arc_dead_shortcodes.txt account_cursor.txt reel_links.txt
+            touch arc_ig_history.txt arc_dead_shortcodes.txt arc_discovered_pool.txt reel_links.txt
             cat /tmp/arc_ig_history.bak >> arc_ig_history.txt
             sort -u arc_ig_history.txt -o arc_ig_history.txt
             cat /tmp/arc_dead_shortcodes.bak >> arc_dead_shortcodes.txt
             sort -u arc_dead_shortcodes.txt -o arc_dead_shortcodes.txt
-            cp /tmp/account_cursor.bak account_cursor.txt
+            cat /tmp/arc_discovered_pool.bak >> arc_discovered_pool.txt
+            sort -u arc_discovered_pool.txt -o arc_discovered_pool.txt
             
-            git add arc_ig_history.txt arc_dead_shortcodes.txt account_cursor.txt reel_links.txt
-            git diff --staged --quiet || (git commit -m "chore: wave $i save" && git push origin main)
+            git add arc_ig_history.txt arc_dead_shortcodes.txt arc_discovered_pool.txt reel_links.txt
+            git diff --staged --quiet || (git commit -m "chore: hourly wave $i ledger save" && git push origin main)
             
-            # 3. Calculate exact sleep needed to hit exactly 30 minutes
+            # 3. Lock total wave cycle to 3,600 seconds (1 Hour) so each account reposts ~1 hr later
             END_TIME=$(date +%s)
             ELAPSED=$((END_TIME - START_TIME))
-            SLEEP_TIME=$((1800 - ELAPSED)) # 1800 seconds = 30 minutes
+            SLEEP_TIME=$((3600 - ELAPSED))
             
-            if [ $i -lt 11 ]; then
+            if [ $i -lt 5 ]; then
               if [ $SLEEP_TIME -gt 0 ]; then
-                echo "⏱️ Script took $ELAPSED seconds. Sleeping for $SLEEP_TIME seconds to hit exactly 30 minutes."
+                echo "⏱️ Wave $i took $ELAPSED seconds. Sleeping $SLEEP_TIME seconds to hit the exact 1-hour mark."
                 sleep $SLEEP_TIME
               else
-                echo "⚠️ Script took $ELAPSED seconds (longer than 30 mins). Moving immediately to next wave."
-                sleep 10
+                echo "⚠️ Wave $i took $ELAPSED seconds (over 1 hour). Starting next hourly wave in 15 seconds."
+                sleep 15
               fi
             fi
           done
-          
