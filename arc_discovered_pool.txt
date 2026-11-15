@@ -105,6 +105,8 @@ intensecorb|ig_DfuzFAiSS1X
 intensecorb|ig_DfuzLjqkrdf
 intensecorb|ig_Dfw5PhFpMgd
 intensecorb|ig_DfwPc5kpf52
+intensecorb|ig_DfxZzHWTPSH
+intensecorb|ig_Dfxpy2dzc5M
 luxereturns|ig_DTwTgcajAmd
 luxereturns|ig_DdMxWZMJRlk
 luxereturns|ig_DdZ9ezfJ_p8
@@ -212,6 +214,7 @@ luxurcore|ig_DfthLkHHweT
 luxurcore|ig_DfthLkIHwct
 luxurcore|ig_DfthLkRH_4l
 luxurcore|ig_DftkbSdvahG
+luxurcore|ig_DftmBnlvkV4
 luxurcore|ig_Dftn4j_n5Db
 luxurcore|ig_Dftn4kCn_Sv
 luxurcore|ig_Dftn4kFn9mN
