@@ -74,6 +74,10 @@ heritageclass|ig_DfuCHSLiIrS
 heritageclass|ig_DfuCHzlCIQj
 heritageclass|ig_DfuCLRlAsZG
 heritageclass|ig_DfuCjLcCjkM
+heritageclass|ig_DfxrYg_sktt
+heritageclass|ig_DfxrYhnMge_
+heritageclass|ig_Dfxra2qpX-l
+heritageclass|ig_DfxrrbuMz4a
 intensecorb|ig_Dc5T7oTRv14
 intensecorb|ig_DdQ76xVBupX
 intensecorb|ig_De2cSXxT7mj
