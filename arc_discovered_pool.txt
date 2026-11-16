@@ -171,6 +171,17 @@ luxereturns|ig_Dfvet3GTGYE
 luxereturns|ig_Dfvet6WTcZb
 luxereturns|ig_Dfvetz5TOGr
 luxereturns|ig_DfvexiTmCjO
+luxereturns|ig_DfyTWInz3iL
+luxereturns|ig_DfyTWKOTxV0
+luxereturns|ig_DfyTWKuTzcE
+luxereturns|ig_DfyTWM6zMpS
+luxereturns|ig_DfyTWMSzfYr
+luxereturns|ig_DfyTWMtz-7l
+luxereturns|ig_DfyTWOBz6VR
+luxereturns|ig_DfyTWOyT7od
+luxereturns|ig_DfyTWPOT7yg
+luxereturns|ig_DfyTbIsJbq8
+luxereturns|ig_DfyUffTzeV6
 luxurcore|ig_Db-3mFgTjDB
 luxurcore|ig_DdrlcSFzErM
 luxurcore|ig_DfeHQv_P89Z
@@ -230,6 +241,7 @@ luxurcore|ig_Dftn4kFn9mN
 luxurcore|ig_Dftn4kFnyqF
 luxurcore|ig_Dftn4kJH2nZ
 luxurcore|ig_Dftn4kKn02X
+luxurcore|ig_DfttwabPLQr
 luxurcore|ig_Dfu2rqlHzyw
 luxurcore|ig_Dfuvy-jE9YX
 luxurcore|ig_DfwyO1Dn5y5
