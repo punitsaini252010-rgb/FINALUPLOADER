@@ -11,96 +11,30 @@ import yt_dlp
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
-
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
+class SilentLogger:
+    def debug(self, m): pass
+    def warning(self, m): pass
+    def error(self, m): pass
 
-class SilentYTDLLogger:
-    def debug(self, msg):
-        pass
-
-    def warning(self, msg):
-        pass
-
-    def error(self, msg):
-        pass
-
-
-def ensure_edge_tts_installed():
-    try:
-        subprocess.run(
-            ["edge-tts", "--version"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=True,
-        )
-    except Exception:
-        log("[INIT] Installing edge-tts...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-q", "edge-tts"],
-            stdin=subprocess.DEVNULL,
-            timeout=60,
-        )
-
-
-# ==========================================
-# 1. TOKENS, ACCOUNTS & SOURCES
-# ==========================================
-META_TOKENS = [
-    t.strip()
-    for t in [
-        os.getenv("META_TOKEN_1"),
-        os.getenv("META_TOKEN_2"),
-        os.getenv("META_TOKEN_3"),
-    ]
-    if t and t.strip()
-]
-
+META_TOKENS = [t.strip() for t in [os.getenv("META_TOKEN_1"), os.getenv("META_TOKEN_2"), os.getenv("META_TOKEN_3")] if t and t.strip()]
 YT_CLIENT_ID = (os.getenv("YT_CLIENT_ID") or "").strip()
 YT_CLIENT_SECRET = (os.getenv("YT_CLIENT_SECRET") or "").strip()
-YT_REFRESH_TOKENS = [
-    t.strip()
-    for t in re.split(r"[\n,]+", os.getenv("YT_REFRESH_TOKENS") or "")
-    if t.strip()
-]
+YT_REFRESH_TOKENS = [t.strip() for t in re.split(r"[\n,]+", os.getenv("YT_REFRESH_TOKENS") or "") if t.strip()]
 
-GRAPH_API_VERSION = "v20.0"
-
-GREEN_HANDLES = {
-    "arcbloodline2",
-    "arcbloodline3",
-    "arcbloodline4",
-    "arcbloodline9",
-    "arcbloodline19",
-    "arcbloodline20",
-    "arcbloodline23",
-    "arcbloodline25",
-    "arcbloodline26",
-}
+API = "v20.0"
+GREEN_HANDLES = {"arcbloodline2", "arcbloodline3", "arcbloodline4", "arcbloodline9", "arcbloodline19", "arcbloodline20", "arcbloodline23", "arcbloodline25", "arcbloodline26"}
 FLAGGED_HANDLES = {f"arcbloodline{i}" for i in range(1, 27)} - GREEN_HANDLES
-
-ASSETS_DIR = "assets"
-LOCAL_REELS_DIR = "reels"
-ARC_LOGO_PATH = "arc_logo.png"
-STYLISH_FONT_PATH = "Cinzel-Bold.ttf"
-GOLD_HEX = "0xFFD700"
-
-# True = 2160x3840 4K Lanczos + unsharp | False = 1080x1920 fast HD
+ASSETS_DIR, LOCAL_REELS_DIR, ARC_LOGO_PATH, FONT_PATH = "assets", "reels", "arc_logo.png", "Cinzel-Bold.ttf"
 ENABLE_4K_UPSCALE = True
 
-# Add more YouTube /shorts channel URLs here anytime
 SOURCE_YT_CHANNELS = [
     "https://www.youtube.com/@SparkleOfLife-d2y/shorts",
     "https://www.youtube.com/@Luxurylife4628/shorts",
 ]
 
-
-# ==========================================
-# 2. IRRESISTIBLE 3-5 WORD CTAS & CAPTIONS
-# ==========================================
 ARC_ONE_LINER_CTAS = [
     "Stop watching. Enter ARC.",
     "Your seat inside ARC waits.",
@@ -141,550 +75,232 @@ YT_TITLES = [
     "The Blueprint Nobody Talks About #Shorts",
 ]
 
+def make_caption(idx):
+    tags = " ".join(random.sample(NICHE_TAGS, k=random.randint(2, 4)))
+    return f"{random.choice(CAPTION_BODIES)}\n\n{CAPTION_CTAS[idx % len(CAPTION_CTAS)]}\n\n{tags}"
 
-def generate_clean_caption(idx):
-    body = random.choice(CAPTION_BODIES)
-    cta = CAPTION_CTAS[idx % len(CAPTION_CTAS)]
-    tags = " ".join(random.sample(NICHE_TAGS, k=random.choice([2, 3, 4])))
-    return f"{body}\n\n{cta}\n\n{tags}"
-
-
-# ==========================================
-# 3. INSTAGRAM ACCOUNT DISCOVERY
-# ==========================================
-def is_allowed_ig_account(username, page_name):
-    u = (username or "").strip().lower()
-    p = (page_name or "").strip().lower()
+def is_allowed_ig(username, page_name):
+    u, p = (username or "").strip().lower(), (page_name or "").strip().lower()
     if u in GREEN_HANDLES:
         return True
     if u in FLAGGED_HANDLES:
         return False
-    for bad in FLAGGED_HANDLES:
-        if re.search(rf"(^|[^a-z0-9]){re.escape(bad)}([^0-9]|$)", p):
-            return False
-    return True
+    return not any(re.search(rf"(^|[^a-z0-9]){re.escape(b)}([^0-9]|$)", p) for b in FLAGGED_HANDLES)
 
-
-def get_all_healthy_ig_accounts():
-    all_accs = []
-    seen = set()
-    for token in META_TOKENS:
-        url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/accounts"
-        params = {
-            "fields": "id,name,instagram_business_account{id,username}",
-            "limit": 100,
-            "access_token": token,
-        }
-        res = requests.get(url, params=params, timeout=(10, 20)).json()
+def get_ig_accounts():
+    accs, seen = [], set()
+    for tok in META_TOKENS:
+        res = requests.get(f"https://graph.facebook.com/{API}/me/accounts", params={"fields": "id,name,instagram_business_account{id,username}", "limit": 100, "access_token": tok}, timeout=(10, 20)).json()
         if "error" in res:
             log(f"[TOKEN WARN] {res['error'].get('message')}")
             continue
-        for page in res.get("data", []):
-            ig_biz = page.get("instagram_business_account")
-            if ig_biz and "id" in ig_biz and ig_biz["id"] not in seen:
-                uname = ig_biz.get("username", "")
-                pname = page.get("name", "ARC_Node")
-                if is_allowed_ig_account(uname, pname):
-                    seen.add(ig_biz["id"])
-                    all_accs.append({
-                        "page_name": pname,
-                        "ig_user_id": ig_biz["id"],
-                        "ig_username": uname,
-                        "token": token,
-                    })
-                else:
-                    log(f"[BLOCKED FLAGGED] Skipping {uname or pname}")
-    names = [a["ig_username"] or a["page_name"] for a in all_accs]
-    log(f"[IG FLEET] Active clean accounts ({len(all_accs)}): {names}")
-    return all_accs
+        for pg in res.get("data", []):
+            ig = pg.get("instagram_business_account")
+            if ig and ig.get("id") and ig["id"] not in seen:
+                uname, pname = ig.get("username", ""), pg.get("name", "ARC_Node")
+                if is_allowed_ig(uname, pname):
+                    seen.add(ig["id"])
+                    accs.append({"page_name": pname, "ig_user_id": ig["id"], "ig_username": uname, "token": tok})
+    log(f"[IG FLEET] Clean accounts ({len(accs)}): {[a['ig_username'] or a['page_name'] for a in accs]}")
+    return accs
 
-
-# ==========================================
-# 4. RANDOM CLIP PICKER FROM SOURCE CHANNELS
-# ==========================================
-def get_media_duration(path):
+def media_dur(path):
     try:
-        cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", path,
-        ]
-        res = subprocess.run(
-            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=15,
-        )
-        return float(res.stdout.decode("utf-8").strip())
+        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        return float(r.stdout.decode().strip())
     except Exception:
         return 0.0
 
-
-def has_audio_stream(path):
+def has_audio(path):
     try:
-        cmd = [
-            "ffprobe", "-v", "error", "-select_streams", "a",
-            "-show_entries", "stream=codec_type", "-of", "csv=p=0", path,
-        ]
-        res = subprocess.run(
-            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=15,
-        )
-        return bool(res.stdout.decode("utf-8").strip())
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        return bool(r.stdout.decode().strip())
     except Exception:
         return False
 
-
-def fetch_random_urls_from_channels(channel_urls, pool_size=30):
-    candidates = []
-    channels = list(channel_urls)
-    random.shuffle(channels)
-
-    for ch_url in channels:
-        ydl_opts = {
-            "extract_flat": True,
-            "playlistend": 60,
-            "quiet": True,
-            "no_warnings": True,
-            "logger": SilentYTDLLogger(),
-            "socket_timeout": 20,
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(ch_url, download=False)
-            for e in (info.get("entries") or []):
-                if not e:
-                    continue
-                vid_url = e.get("url")
-                if not vid_url and e.get("id"):
-                    vid_url = f"https://www.youtube.com/shorts/{e['id']}"
-                dur = e.get("duration") or 20
-                if vid_url and 8 <= dur <= 90:
-                    if not vid_url.startswith("http"):
-                        vid_url = f"https://www.youtube.com/shorts/{vid_url}"
-                    candidates.append(vid_url)
-        except Exception as err:
-            log(f"[SOURCE WARN] Could not scan {ch_url}: {err}")
-
-    random.shuffle(candidates)
-    return candidates[:pool_size]
-
-
-def collect_source_clips(target_count=9):
+def collect_clips(target=9):
     os.makedirs(ASSETS_DIR, exist_ok=True)
     clips = []
-
     if os.path.isdir(LOCAL_REELS_DIR):
-        for fname in os.listdir(LOCAL_REELS_DIR):
-            if fname.lower().endswith(".mp4"):
-                fpath = os.path.join(LOCAL_REELS_DIR, fname)
-                if get_media_duration(fpath) >= 8.0:
-                    clips.append((fpath, False))
-    random.shuffle(clips)
-
-    candidate_urls = fetch_random_urls_from_channels(SOURCE_YT_CHANNELS, pool_size=30)
-    for idx, vid_url in enumerate(candidate_urls):
-        if len(clips) >= target_count:
-            break
-        out_path = os.path.join(ASSETS_DIR, f"src_yt_{idx}_{random.randint(100, 999)}.mp4")
-        ydl_opts = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "merge_output_format": "mp4",
-            "outtmpl": out_path,
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "logger": SilentYTDLLogger(),
-            "socket_timeout": 25,
-            "match_filter": yt_dlp.utils.match_filter_func("duration >= 8 & duration <= 90"),
-        }
+        for fn in os.listdir(LOCAL_REELS_DIR):
+            fp = os.path.join(LOCAL_REELS_DIR, fn)
+            if fn.lower().endswith(".mp4") and media_dur(fp) >= 8.0:
+                clips.append((fp, False))
+    urls, chans = [], list(SOURCE_YT_CHANNELS)
+    random.shuffle(chans)
+    for ch in chans:
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(vid_url, download=True)
+            with yt_dlp.YoutubeDL({"extract_flat": True, "playlistend": 60, "quiet": True, "no_warnings": True, "logger": SilentLogger(), "socket_timeout": 20}) as ydl:
+                info = ydl.extract_info(ch, download=False)
+            for e in (info.get("entries") or []):
+                u = (e or {}).get("url") or (f"https://www.youtube.com/shorts/{e['id']}" if (e or {}).get("id") else None)
+                if u and 8 <= ((e or {}).get("duration") or 20) <= 90:
+                    urls.append(u if u.startswith("http") else f"https://www.youtube.com/shorts/{u}")
+        except Exception as err:
+            log(f"[SOURCE WARN] {ch}: {err}")
+    random.shuffle(urls)
+    for i, u in enumerate(urls[:30]):
+        if len(clips) >= target:
+            break
+        out = os.path.join(ASSETS_DIR, f"src_{i}_{random.randint(100,999)}.mp4")
+        try:
+            with yt_dlp.YoutubeDL({"format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "merge_output_format": "mp4", "outtmpl": out, "noplaylist": True, "quiet": True, "no_warnings": True, "logger": SilentLogger(), "socket_timeout": 25}) as ydl:
+                ydl.extract_info(u, download=True)
         except Exception:
             pass
-
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 200000 and get_media_duration(out_path) >= 8.0:
-            clips.append((out_path, True))
-            log(f"[RANDOM PICK] Downloaded {vid_url} (audio={has_audio_stream(out_path)})")
-        elif os.path.exists(out_path):
-            try:
-                os.remove(out_path)
-            except Exception:
-                pass
-
+        if os.path.exists(out) and os.path.getsize(out) > 200000 and media_dur(out) >= 8.0:
+            clips.append((out, True))
+            log(f"[PICKED] {u}")
+        elif os.path.exists(out):
+            os.remove(out)
     random.shuffle(clips)
     return clips
 
-
-def ensure_stylish_font():
-    if os.path.exists(STYLISH_FONT_PATH) and os.path.getsize(STYLISH_FONT_PATH) > 15000:
-        return STYLISH_FONT_PATH
-    font_urls = [
-        "https://github.com/google/fonts/raw/main/ofl/cinzel/static/Cinzel-Bold.ttf",
-        "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf",
-    ]
-    for url in font_urls:
+def get_font():
+    if os.path.exists(FONT_PATH) and os.path.getsize(FONT_PATH) > 15000:
+        return FONT_PATH
+    for u in ["https://github.com/google/fonts/raw/main/ofl/cinzel/static/Cinzel-Bold.ttf", "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf"]:
         try:
-            r = requests.get(url, timeout=15)
+            r = requests.get(u, timeout=15)
             if r.status_code == 200 and len(r.content) > 15000:
-                with open(STYLISH_FONT_PATH, "wb") as f:
+                with open(FONT_PATH, "wb") as f:
                     f.write(r.content)
-                return STYLISH_FONT_PATH
+                return FONT_PATH
         except Exception:
-            continue
+            pass
     return "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 
+def make_vo(text, out_mp3):
+    v = random.choice(["en-US-AndrewMultilingualNeural", "en-US-BrianMultilingualNeural", "en-US-ChristopherNeural"])
+    subprocess.run(["edge-tts", "--voice", v, "--rate=-2%", "--pitch=-4Hz", "--text", text, "--write-media", out_mp3], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=True)
+    return media_dur(out_mp3)
 
-def generate_cta_voiceover(cta_text, out_mp3):
-    voice = random.choice([
-        "en-US-AndrewMultilingualNeural",
-        "en-US-BrianMultilingualNeural",
-        "en-US-ChristopherNeural",
-    ])
-    cmd = [
-        "edge-tts",
-        "--voice", voice,
-        "--rate=-2%",
-        "--pitch=-4Hz",
-        "--text", cta_text,
-        "--write-media", out_mp3,
-    ]
-    subprocess.run(
-        cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, timeout=30, check=True,
-    )
-    return get_media_duration(out_mp3)
-
-
-# ==========================================
-# 5. FFMPEG RENDERER (4K, NO FLIP, 10-13s, LOGO + CTA + 2.5% BED)
-# ==========================================
-def render_arc_reel(src_clip, output_path, font_path, tag_id):
-    cta_text = random.choice(ARC_ONE_LINER_CTAS)
-    vo_path = f"vo_{tag_id}_{random.randint(100, 999)}.mp3"
-    vo_dur = generate_cta_voiceover(cta_text, vo_path)
-
-    end_dur = round(max(2.0, min(3.8, vo_dur + 0.35)), 2)
-    target_total = round(random.uniform(10.5, 12.8), 2)
-    main_dur = round(max(7.5, target_total - end_dur), 2)
-    total_dur = round(main_dur + end_dur, 2)
-
-    src_dur = get_media_duration(src_clip)
-    st = round(random.uniform(0.15, 0.45), 2) if src_dur > total_dur + 1.0 else 0.0
-
-    clip_has_audio = has_audio_stream(src_clip)
-    logo_exists = os.path.exists(ARC_LOGO_PATH) and os.path.getsize(ARC_LOGO_PATH) > 500
-
+def render_reel(src, out_mp4, font, tag):
+    cta = random.choice(ARC_ONE_LINER_CTAS)
+    vo = f"vo_{tag}_{random.randint(100,999)}.mp3"
+    vo_d = make_vo(cta, vo)
+    end_d = round(max(2.0, min(3.8, vo_d + 0.35)), 2)
+    tot_d = round(random.uniform(10.5, 12.8), 2)
+    main_d = round(max(7.5, tot_d - end_d), 2)
+    tot_d = round(main_d + end_d, 2)
+    st = round(random.uniform(0.15, 0.45), 2) if media_dur(src) > tot_d + 1.0 else 0.0
+    logo_ok = os.path.exists(ARC_LOGO_PATH) and os.path.getsize(ARC_LOGO_PATH) > 500
     if ENABLE_4K_UPSCALE:
-        out_w, out_h = 2160, 3840
-        pre_w, pre_h = 2204, 3917
-        mini_px, big_px = 78, 660
-        top_px, cta_px, end_arc_px = 54, 86, 210
-        logo_xy, top_y = "54:90", "98"
-        end_logo_dy, cta_y = "-230", "(h/2)+250"
-        end_arc_y, end_cta_y = "(h/2)-250", "(h/2)+110"
-        crf_val, preset_val = "17", "veryfast"
-        v_level = "5.1"
+        ow, oh, pw, ph, mpx, bpx, tpx, cpx, epx, lxy, ty, edy, cy, eay, ecy, crf, pre, lvl = 2160, 3840, 2204, 3917, 78, 660, 54, 86, 210, "54:90", "98", "-230", "(h/2)+250", "(h/2)-250", "(h/2)+110", "17", "veryfast", "5.1"
     else:
-        out_w, out_h = 1080, 1920
-        pre_w, pre_h = 1102, 1958
-        mini_px, big_px = 39, 330
-        top_px, cta_px, end_arc_px = 27, 44, 110
-        logo_xy, top_y = "27:45", "49"
-        end_logo_dy, cta_y = "-115", "(h/2)+125"
-        end_arc_y, end_cta_y = "(h/2)-125", "(h/2)+55"
-        crf_val, preset_val = "18", "faster"
-        v_level = "4.2"
-
-    # Sub-audible custom synth bed (~2.5% total amplitude)
-    f1 = round(random.uniform(44.0, 66.0), 1)
+        ow, oh, pw, ph, mpx, bpx, tpx, cpx, epx, lxy, ty, edy, cy, eay, ecy, crf, pre, lvl = 1080, 1920, 1102, 1958, 39, 330, 27, 44, 110, "27:45", "49", "-115", "(h/2)+125", "(h/2)-125", "(h/2)+55", "18", "faster", "4.2"
+    f1, f3 = round(random.uniform(44.0, 66.0), 1), round(random.uniform(118.0, 162.0), 1)
     f2 = round(f1 * 1.5, 1)
-    f3 = round(random.uniform(118.0, 162.0), 1)
-    sv1 = round(random.uniform(0.010, 0.013), 4)
-    sv2 = round(random.uniform(0.006, 0.009), 4)
-    sv3 = round(random.uniform(0.004, 0.006), 4)
-
-    cta_safe = cta_text.replace("'", "").replace(":", " -")
-    delay_ms = int(main_dur * 1000)
+    sv1, sv2, sv3 = round(random.uniform(0.010, 0.013), 4), round(random.uniform(0.006, 0.009), 4), round(random.uniform(0.004, 0.006), 4)
+    cta_safe = cta.replace("'", "").replace(":", " -")
     ts_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(time.time()) - random.randint(600, 86400)))
-
-    if logo_exists:
-        v_filter = (
-            f"[2:v]split=2[l1][l2];"
-            f"[l1]scale={mini_px}:{mini_px}:force_original_aspect_ratio=decrease:flags=lanczos,"
-            f"format=rgba,colorchannelmixer=aa=0.45[mini_logo];"
-            f"[l2]scale={big_px}:{big_px}:force_original_aspect_ratio=decrease:flags=lanczos,"
-            f"format=rgba[big_logo];"
-            f"[0:v]trim=start={st}:duration={main_dur},setpts=PTS-STARTPTS,"
-            f"scale={pre_w}:{pre_h}:force_original_aspect_ratio=increase:flags=lanczos,"
-            f"crop={out_w}:{out_h},unsharp=5:5:0.45:3:3:0.0,"
-            f"fps=30,setsar=1,eq=contrast=1.02:saturation=1.03:brightness=0.005[m_base];"
-            f"[m_base][mini_logo]overlay={logo_xy}[m_logo];"
-            f"[m_logo]drawtext=fontfile='{font_path}':text='ARC':fontcolor=white@0.22:fontsize={top_px}:"
-            f"x=(w-text_w)/2:y={top_y},format=yuv420p[main_v];"
-            f"color=c=0x080808:s={out_w}x{out_h}:d={end_dur}:r=30[e_bg];"
-            f"[e_bg][big_logo]overlay=(W-w)/2:(H-h)/2{end_logo_dy}[e_logo];"
-            f"[e_logo]drawtext=fontfile='{font_path}':text='{cta_safe}':fontcolor={GOLD_HEX}:fontsize={cta_px}:"
-            f"x=(w-text_w)/2:y={cta_y}:shadowcolor=black:shadowx=2:shadowy=2,"
-            f"fps=30,setsar=1,format=yuv420p[end_v];"
-            f"[main_v][end_v]concat=n=2:v=1:a=0[vout];"
-        )
+    if logo_ok:
+        vf = f"[2:v]split=2[l1][l2];[l1]scale={mpx}:{mpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba,colorchannelmixer=aa=0.45[ml];[l2]scale={bpx}:{bpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba[bl];[0:v]trim=start={st}:duration={main_d},setpts=PTS-STARTPTS,scale={pw}:{ph}:force_original_aspect_ratio=increase:flags=lanczos,crop={ow}:{oh},unsharp=5:5:0.45:3:3:0.0,fps=30,setsar=1,eq=contrast=1.02:saturation=1.03:brightness=0.005[mb];[mb][ml]overlay={lxy}[mlo];[mlo]drawtext=fontfile='{font}':text='ARC':fontcolor=white@0.22:fontsize={tpx}:x=(w-text_w)/2:y={ty},format=yuv420p[mv];color=c=0x080808:s={ow}x{oh}:d={end_d}:r=30[eb];[eb][bl]overlay=(W-w)/2:(H-h)/2{edy}[elo];[elo]drawtext=fontfile='{font}':text='{cta_safe}':fontcolor=0xFFD700:fontsize={cpx}:x=(w-text_w)/2:y={cy}:shadowcolor=black:shadowx=2:shadowy=2,fps=30,setsar=1,format=yuv420p[ev];[mv][ev]concat=n=2:v=1:a=0[vout];"
     else:
-        log("[WARN] arc_logo.png missing in repo root — using gold text fallback.")
-        v_filter = (
-            f"[0:v]trim=start={st}:duration={main_dur},setpts=PTS-STARTPTS,"
-            f"scale={pre_w}:{pre_h}:force_original_aspect_ratio=increase:flags=lanczos,"
-            f"crop={out_w}:{out_h},unsharp=5:5:0.45:3:3:0.0,"
-            f"fps=30,setsar=1,eq=contrast=1.02:saturation=1.03:brightness=0.005,"
-            f"drawtext=fontfile='{font_path}':text='ARC':fontcolor=white@0.22:fontsize={top_px}:"
-            f"x=(w-text_w)/2:y={top_y},format=yuv420p[main_v];"
-            f"color=c=0x080808:s={out_w}x{out_h}:d={end_dur}:r=30,"
-            f"drawtext=fontfile='{font_path}':text='A R C':fontcolor={GOLD_HEX}:fontsize={end_arc_px}:"
-            f"x=(w-text_w)/2:y={end_arc_y},"
-            f"drawtext=fontfile='{font_path}':text='{cta_safe}':fontcolor=white@0.95:fontsize={cta_px}:"
-            f"x=(w-text_w)/2:y={end_cta_y},"
-            f"fps=30,setsar=1,format=yuv420p[end_v];"
-            f"[main_v][end_v]concat=n=2:v=1:a=0[vout];"
-        )
-
-    if clip_has_audio:
-        orig_a = (
-            f"[0:a]atrim=start={st}:duration={total_dur},asetpts=PTS-STARTPTS,"
-            f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-            f"volume='if(lt(t,{main_dur}),0.85,0.22)':eval=frame,"
-            f"apad=whole_dur={total_dur},atrim=0:{total_dur}[orig_a];"
-        )
-    else:
-        orig_a = (
-            f"aevalsrc=0.04*sin(2*PI*55*t)+0.02*sin(2*PI*82.4*t):s=48000:d={total_dur},"
-            f"aformat=sample_fmts=fltp:channel_layouts=stereo[orig_a];"
-        )
-
-    a_filter = (
-        orig_a
-        + f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-        f"volume=1.65,adelay={delay_ms}|{delay_ms},"
-        f"apad=whole_dur={total_dur},atrim=0:{total_dur}[vo_a];"
-        f"aevalsrc={sv1}*sin(2*PI*{f1}*t)+{sv2}*sin(2*PI*{f2}*t)+{sv3}*sin(2*PI*{f3}*t):"
-        f"s=48000:d={total_dur},aformat=sample_fmts=fltp:channel_layouts=stereo[sub_bed];"
-        f"[orig_a][vo_a][sub_bed]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
-        f"alimiter=limit=0.95,afade=t=out:st={round(total_dur - 0.25, 2)}:d=0.25[aout]"
-    )
-
-    cmd = [
-        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-        "-stream_loop", "-1", "-i", src_clip,
-        "-i", vo_path,
-    ]
-    if logo_exists:
-        cmd.extend(["-i", ARC_LOGO_PATH])
-
-    cmd.extend([
-        "-filter_complex", v_filter + a_filter,
-        "-map", "[vout]", "-map", "[aout]",
-        "-t", str(total_dur),
-        "-c:v", "libx264", "-profile:v", "high", "-level:v", v_level,
-        "-crf", crf_val, "-maxrate", "22M", "-bufsize", "44M",
-        "-preset", preset_val, "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-        "-map_metadata", "-1", "-metadata", f"creation_time={ts_iso}",
-        output_path,
-    ])
-
+        vf = f"[0:v]trim=start={st}:duration={main_d},setpts=PTS-STARTPTS,scale={pw}:{ph}:force_original_aspect_ratio=increase:flags=lanczos,crop={ow}:{oh},unsharp=5:5:0.45:3:3:0.0,fps=30,setsar=1,eq=contrast=1.02:saturation=1.03:brightness=0.005,drawtext=fontfile='{font}':text='ARC':fontcolor=white@0.22:fontsize={tpx}:x=(w-text_w)/2:y={ty},format=yuv420p[mv];color=c=0x080808:s={ow}x{oh}:d={end_d}:r=30,drawtext=fontfile='{font}':text='A R C':fontcolor=0xFFD700:fontsize={epx}:x=(w-text_w)/2:y={eay},drawtext=fontfile='{font}':text='{cta_safe}':fontcolor=white@0.95:fontsize={cpx}:x=(w-text_w)/2:y={ecy},fps=30,setsar=1,format=yuv420p[ev];[mv][ev]concat=n=2:v=1:a=0[vout];"
+    oa = f"[0:a]atrim=start={st}:duration={tot_d},asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume='if(lt(t,{main_d}),0.85,0.22)':eval=frame,apad=whole_dur={tot_d},atrim=0:{tot_d}[oa];" if has_audio(src) else f"aevalsrc=0.04*sin(2*PI*55*t)+0.02*sin(2*PI*82.4*t):s=48000:d={tot_d},aformat=sample_fmts=fltp:channel_layouts=stereo[oa];"
+    af = oa + f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=1.65,adelay={int(main_d*1000)}|{int(main_d*1000)},apad=whole_dur={tot_d},atrim=0:{tot_d}[va];aevalsrc={sv1}*sin(2*PI*{f1}*t)+{sv2}*sin(2*PI*{f2}*t)+{sv3}*sin(2*PI*{f3}*t):s=48000:d={tot_d},aformat=sample_fmts=fltp:channel_layouts=stereo[sb];[oa][va][sb]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,afade=t=out:st={round(tot_d-0.25,2)}:d=0.25[aout]"
+    cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1", "-i", src, "-i", vo] + (["-i", ARC_LOGO_PATH] if logo_ok else []) + ["-filter_complex", vf + af, "-map", "[vout]", "-map", "[aout]", "-t", str(tot_d), "-c:v", "libx264", "-profile:v", "high", "-level:v", lvl, "-crf", crf, "-maxrate", "22M", "-bufsize", "44M", "-preset", pre, "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-map_metadata", "-1", "-metadata", f"creation_time={ts_iso}", out_mp4]
     try:
-        res = subprocess.run(
-            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=240,
-        )
-        if res.returncode != 0 or not os.path.exists(output_path):
-            raise Exception(res.stderr.decode("utf-8", errors="ignore"))
-        log(f"[RENDER] {out_w}x{out_h} | {total_dur}s (Main {main_dur}s + End {end_dur}s | '{cta_text}')")
+        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
+        if res.returncode != 0 or not os.path.exists(out_mp4):
+            raise Exception(res.stderr.decode(errors="ignore"))
+        log(f"[RENDER] {ow}x{oh} | {tot_d}s | '{cta}'")
     finally:
-        if os.path.exists(vo_path):
-            try:
-                os.remove(vo_path)
-            except Exception:
-                pass
-    return output_path
+        if os.path.exists(vo):
+            os.remove(vo)
+    return out_mp4
 
-
-# ==========================================
-# 6. INSTAGRAM & YOUTUBE PUBLISHERS
-# ==========================================
-def upload_for_meta_download(file_path):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    relays = [
-        ("https://catbox.moe/user/api.php", {"reqtype": "fileupload"}),
-        ("https://litterbox.catbox.moe/resources/internals/api.php", {"reqtype": "fileupload", "time": "1h"}),
-    ]
-    for url, data in relays:
+def upload_relay(fp):
+    for u, d in [("https://catbox.moe/user/api.php", {"reqtype": "fileupload"}), ("https://litterbox.catbox.moe/resources/internals/api.php", {"reqtype": "fileupload", "time": "1h"})]:
         try:
-            with open(file_path, "rb") as f:
-                r = requests.post(
-                    url, data=data, files={"fileToUpload": f},
-                    headers=headers, timeout=(15, 120),
-                )
+            with open(fp, "rb") as f:
+                r = requests.post(u, data=d, files={"fileToUpload": f}, headers={"User-Agent": "Mozilla/5.0"}, timeout=(15, 120))
             if r.status_code == 200 and r.text.strip().startswith("https://"):
                 return r.text.strip()
         except Exception:
             pass
     raise Exception("Relay upload failed.")
 
-
-def publish_ig_reel(ig_user_id, video_url, caption, token):
-    r = requests.post(
-        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media",
-        data={
-            "media_type": "REELS",
-            "video_url": video_url,
-            "caption": caption,
-            "share_to_feed": "true",
-            "access_token": token,
-        },
-        timeout=(10, 30),
-    ).json()
+def publish_ig(uid, vurl, cap, tok):
+    r = requests.post(f"https://graph.facebook.com/{API}/{uid}/media", data={"media_type": "REELS", "video_url": vurl, "caption": cap, "share_to_feed": "true", "access_token": tok}, timeout=(10, 30)).json()
     if "id" not in r:
         raise Exception(f"IG Container failed: {r}")
-
-cid = r["id"]
+    cid = r["id"]
     time.sleep(20)
     for _ in range(18):
-        st = requests.get(
-            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{cid}",
-            params={"fields": "status_code", "access_token": token},
-            timeout=15,
-        ).json()
+        st = requests.get(f"https://graph.facebook.com/{API}/{cid}", params={"fields": "status_code", "access_token": tok}, timeout=15).json()
         if st.get("status_code") == "FINISHED":
             break
         if st.get("status_code") in ("ERROR", "EXPIRED"):
             raise Exception(f"Meta rejected: {st}")
         time.sleep(10)
-
-    pub = requests.post(
-        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish",
-        data={"creation_id": cid, "access_token": token},
-        timeout=(10, 30),
-    ).json()
+    pub = requests.post(f"https://graph.facebook.com/{API}/{uid}/media_publish", data={"creation_id": cid, "access_token": tok}, timeout=(10, 30)).json()
     if "id" not in pub:
         raise Exception(f"IG Publish failed: {pub}")
-    log(f"[IG SUCCESS] Published Reel! Media ID: {pub['id']}")
+    log(f"[IG SUCCESS] Media ID: {pub['id']}")
 
+def publish_yt(fp, title, desc, rtok):
+    atok = requests.post("https://oauth2.googleapis.com/token", data={"client_id": YT_CLIENT_ID, "client_secret": YT_CLIENT_SECRET, "refresh_token": rtok, "grant_type": "refresh_token"}, timeout=20).json().get("access_token")
+    if not atok:
+        raise Exception("YT OAuth failed")
+    init = requests.post("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", headers={"Authorization": f"Bearer {atok}", "Content-Type": "application/json; charset=UTF-8"}, data=json.dumps({"snippet": {"title": title[:95], "description": desc, "categoryId": "22"}, "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}}), timeout=30)
+    up_url = init.headers.get("Location")
+    if not up_url:
+        raise Exception(f"YT init failed: {init.text}")
+    with open(fp, "rb") as f:
+        up = requests.put(up_url, headers={"Content-Type": "video/mp4"}, data=f, timeout=180)
+    if up.status_code not in (200, 201):
+        raise Exception(f"YT upload failed: {up.text}")
+    log(f"[YT SUCCESS] Video ID: {up.json().get('id')}")
 
-def publish_yt_short(file_path, title, description, refresh_token):
-    tok_res = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "client_id": YT_CLIENT_ID,
-            "client_secret": YT_CLIENT_SECRET,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        },
-        timeout=20,
-    ).json()
-    access_token = tok_res.get("access_token")
-    if not access_token:
-        raise Exception(f"YT OAuth refresh failed: {tok_res}")
-
-    meta = {
-        "snippet": {"title": title[:95], "description": description, "categoryId": "22"},
-        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
-    }
-    init_res = requests.post(
-        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=UTF-8",
-        },
-        data=json.dumps(meta),
-        timeout=30,
-    )
-    upload_url = init_res.headers.get("Location")
-    if not upload_url:
-        raise Exception(f"YT init failed: {init_res.text}")
-
-    with open(file_path, "rb") as f:
-        up_res = requests.put(
-            upload_url, headers={"Content-Type": "video/mp4"}, data=f, timeout=180
-        )
-    if up_res.status_code not in (200, 201):
-        raise Exception(f"YT upload failed: {up_res.text}")
-    log(f"[YT SUCCESS] Published Short! Video ID: {up_res.json().get('id')}")
-
-
-# ==========================================
-# 7. MAIN EXECUTION
-# ==========================================
 def main():
-    log("=== ARC AUTONOMOUS DISTRIBUTION ENGINE STARTED ===")
-    ensure_edge_tts_installed()
-    font_path = ensure_stylish_font()
-
-    clip_pool = collect_source_clips(target_count=9)
-    if not clip_pool:
-        log("[ERROR] No source clips available.")
+    log("=== ARC ENGINE STARTED ===")
+    font = get_font()
+    clips = collect_clips(target=9)
+    if not clips:
+        log("[ERROR] No clips found.")
         return
-
     try:
-        ig_accounts = get_all_healthy_ig_accounts()
-        random.shuffle(ig_accounts)
+        ig_accs = get_ig_accounts()
+        random.shuffle(ig_accs)
         ig_ok = 0
-
-        for idx, acc in enumerate(ig_accounts):
-            label = acc["ig_username"] or acc["page_name"]
-            log(f"\n--- IG [{idx + 1}/{len(ig_accounts)}]: {label} ---")
-            out_file = f"arc_ig_{idx}.mp4"
+        for i, acc in enumerate(ig_accs):
+            log(f"\n--- IG [{i+1}/{len(ig_accs)}]: {acc['ig_username'] or acc['page_name']} ---")
+            out = f"arc_ig_{i}.mp4"
             try:
-                src_clip, _ = random.choice(clip_pool)
-                render_arc_reel(src_clip, out_file, font_path, f"ig{idx}")
-                pub_url = upload_for_meta_download(out_file)
-                publish_ig_reel(acc["ig_user_id"], pub_url, generate_clean_caption(idx), acc["token"])
+                render_reel(random.choice(clips)[0], out, font, f"ig{i}")
+                publish_ig(acc["ig_user_id"], upload_relay(out), make_caption(i), acc["token"])
                 ig_ok += 1
             except Exception as e:
                 log(f"[IG SKIP] {e}")
             finally:
-                if os.path.exists(out_file):
-                    try:
-                        os.remove(out_file)
-                    except Exception:
-                        pass
-            if idx < len(ig_accounts) - 1:
-                wait_s = random.randint(40, 80)
-                log(f"[PACING] Sleeping {wait_s}s...")
-                time.sleep(wait_s)
-
+                if os.path.exists(out):
+                    os.remove(out)
+            if i < len(ig_accs) - 1:
+                time.sleep(random.randint(40, 80))
         yt_ok = 0
         if YT_CLIENT_ID and YT_CLIENT_SECRET and YT_REFRESH_TOKENS:
-            for idx, r_tok in enumerate(YT_REFRESH_TOKENS):
-                log(f"\n--- YT CHANNEL [{idx + 1}/{len(YT_REFRESH_TOKENS)}] ---")
-                out_file = f"arc_yt_{idx}.mp4"
+            for i, rtok in enumerate(YT_REFRESH_TOKENS):
+                log(f"\n--- YT [{i+1}/{len(YT_REFRESH_TOKENS)}] ---")
+                out = f"arc_yt_{i}.mp4"
                 try:
-                    src_clip, _ = random.choice(clip_pool)
-                    render_arc_reel(src_clip, out_file, font_path, f"yt{idx}")
-                    publish_yt_short(out_file, random.choice(YT_TITLES), generate_clean_caption(idx), r_tok)
+                    render_reel(random.choice(clips)[0], out, font, f"yt{i}")
+                    publish_yt(out, random.choice(YT_TITLES), make_caption(i), rtok)
                     yt_ok += 1
                 except Exception as e:
                     log(f"[YT SKIP] {e}")
                 finally:
-                    if os.path.exists(out_file):
-                        try:
-                            os.remove(out_file)
-                        except Exception:
-                            pass
-                if idx < len(YT_REFRESH_TOKENS) - 1:
+                    if os.path.exists(out):
+                        os.remove(out)
+                if i < len(YT_REFRESH_TOKENS) - 1:
                     time.sleep(random.randint(20, 45))
-        else:
-            log("[YT INFO] YouTube secrets not added yet — skipping YT lane cleanly.")
-
-        log(
-            f"\n=== WAVE COMPLETE: {ig_ok}/{len(ig_accounts)} IG REELS | "
-            f"{yt_ok}/{len(YT_REFRESH_TOKENS)} YT SHORTS ==="
-        )
+        log(f"\n=== WAVE DONE: {ig_ok}/{len(ig_accs)} IG | {yt_ok}/{len(YT_REFRESH_TOKENS)} YT ===")
     finally:
-        for fpath, is_temp in clip_pool:
-            if is_temp and os.path.exists(fpath):
-                try:
-                    os.remove(fpath)
-                except Exception:
-                    pass
-
+        for fp, tmp in clips:
+            if tmp and os.path.exists(fp):
+                os.remove(fp)
 
 if __name__ == "__main__":
     main()
+# END OF FILE
