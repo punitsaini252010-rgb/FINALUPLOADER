@@ -1,90 +1,31 @@
-name: ARC 1-Hour Precision Engine
+name: ARC Unified Autonomous Engine
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 0,3,9,13,18 * * *'
   workflow_dispatch:
 
-concurrency:
-  group: arc-hourly-fleet-wave
-  cancel-in-progress: true
-
-permissions:
-  contents: write
-
 jobs:
-  hourly-engine:
+  run-autonomous-fleet:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+    timeout-minutes: 60
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install FFmpeg, Fonts & Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install --upgrade pip
-          pip install requests yt-dlp edge-tts
-
-      - name: The 1-Hour Precision Engine (5 Continuous Hourly Waves)
+          pip install --upgrade pip requests yt-dlp edge-tts
+      - name: Run ARC Engine
         env:
           META_TOKEN_1: ${{ secrets.META_TOKEN_1 }}
           META_TOKEN_2: ${{ secrets.META_TOKEN_2 }}
-          ARC_JOIN_LINK: ${{ secrets.ARC_JOIN_LINK }}
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "ARC Fleet Engine"
-          
-          # 5 waves * 60 mins = 300 mins (fits safely inside GitHub's 360-min max runner limit)
-          for i in {1..5}; do
-            echo "🔥 === STARTING 1-HOUR WAVE $i/5 ==="
-            START_TIME=$(date +%s)
-            
-            # 1. Run the Python Publisher (Paced across ~53 mins with randomized spacing)
-            python arc_engine.py || true
-            
-            # 2. Securely Save Ledger & Discovered Reel Pool (Zero Merge Conflicts)
-            echo "💾 === SAVING LEDGER FOR HOURLY WAVE $i ==="
-            touch arc_ig_history.txt arc_dead_shortcodes.txt arc_discovered_pool.txt reel_links.txt
-            cp arc_ig_history.txt /tmp/arc_ig_history.bak
-            cp arc_dead_shortcodes.txt /tmp/arc_dead_shortcodes.bak
-            cp arc_discovered_pool.txt /tmp/arc_discovered_pool.bak
-            
-            git fetch origin main
-            git reset --hard origin/main
-            
-            touch arc_ig_history.txt arc_dead_shortcodes.txt arc_discovered_pool.txt reel_links.txt
-            cat /tmp/arc_ig_history.bak >> arc_ig_history.txt
-            sort -u arc_ig_history.txt -o arc_ig_history.txt
-            cat /tmp/arc_dead_shortcodes.bak >> arc_dead_shortcodes.txt
-            sort -u arc_dead_shortcodes.txt -o arc_dead_shortcodes.txt
-            cat /tmp/arc_discovered_pool.bak >> arc_discovered_pool.txt
-            sort -u arc_discovered_pool.txt -o arc_discovered_pool.txt
-            
-            git add arc_ig_history.txt arc_dead_shortcodes.txt arc_discovered_pool.txt reel_links.txt
-            git diff --staged --quiet || (git commit -m "chore: hourly wave $i ledger save" && git push origin main)
-            
-            # 3. Lock total wave cycle to 3,600 seconds (1 Hour) so each account reposts ~1 hr later
-            END_TIME=$(date +%s)
-            ELAPSED=$((END_TIME - START_TIME))
-            SLEEP_TIME=$((3600 - ELAPSED))
-            
-            if [ $i -lt 5 ]; then
-              if [ $SLEEP_TIME -gt 0 ]; then
-                echo "⏱️ Wave $i took $ELAPSED seconds. Sleeping $SLEEP_TIME seconds to hit the exact 1-hour mark."
-                sleep $SLEEP_TIME
-              else
-                echo "⚠️ Wave $i took $ELAPSED seconds (over 1 hour). Starting next hourly wave in 15 seconds."
-                sleep 15
-              fi
-            fi
-          done
+          META_TOKEN_3: ${{ secrets.META_TOKEN_3 }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKENS: ${{ secrets.YT_REFRESH_TOKENS }}
+        run: python arc_engine.py
+        
