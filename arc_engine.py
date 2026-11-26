@@ -3,7 +3,6 @@ import re
 import sys
 import json
 import time
-import urllib.parse
 import subprocess
 import requests
 import random
@@ -12,801 +11,500 @@ import yt_dlp
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
 
 class SilentYTDLLogger:
     def debug(self, msg): pass
     def warning(self, msg): pass
     def error(self, msg): pass
 
+
 def ensure_edge_tts_installed():
     try:
-        subprocess.run(["edge-tts", "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=True)
+        subprocess.run(
+            ["edge-tts", "--version"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=True,
+        )
     except Exception:
-        log("[INIT] Installing edge-tts for neural voiceover...")
-        try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "edge-tts"], stdin=subprocess.DEVNULL, timeout=60)
-        except Exception as e:
-            log(f"[OVERFLOW] edge-tts install skipped: {e}")
+        log("[INIT] Installing edge-tts...")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "edge-tts"],
+            stdin=subprocess.DEVNULL,
+            timeout=60,
+        )
+
 
 # ==========================================
-# 1. CORE 1-HOUR BRACKET CONFIGURATION
+# 1. TOKENS & ACCOUNT FILTER (9 ACTIVE + FUTURE)
 # ==========================================
 META_TOKENS = [
-    os.getenv("META_TOKEN_1"),
-    os.getenv("META_TOKEN_2")
+    t.strip()
+    for t in [
+        os.getenv("META_TOKEN_1"),
+        os.getenv("META_TOKEN_2"),
+        os.getenv("META_TOKEN_3"),
+    ]
+    if t and t.strip()
+]
+
+YT_CLIENT_ID = (os.getenv("YT_CLIENT_ID") or "").strip()
+YT_CLIENT_SECRET = (os.getenv("YT_CLIENT_SECRET") or "").strip()
+YT_REFRESH_TOKENS = [
+    t.strip()
+    for t in re.split(r"[\n,]+", os.getenv("YT_REFRESH_TOKENS") or "")
+    if t.strip()
 ]
 
 GRAPH_API_VERSION = "v20.0"
-ACCOUNTS_PER_WAVE = 23
-TARGET_WAVE_WINDOW_SECONDS = 3180  # 53 mins active window so wave + git push fits inside 1 hour
 
-LINKS_FILE = "reel_links.txt"
-HISTORY_FILE = "arc_ig_history.txt"
-DEAD_SHORTCODES_FILE = "arc_dead_shortcodes.txt"
-DISCOVERED_POOL_FILE = "arc_discovered_pool.txt"
+# 9 active accounts (6 surviving green + 3 newly linked: 2, 3, 4)
+GREEN_HANDLES = {
+    "arcbloodline2",
+    "arcbloodline3",
+    "arcbloodline4",
+    "arcbloodline9",
+    "arcbloodline19",
+    "arcbloodline20",
+    "arcbloodline23",
+    "arcbloodline25",
+    "arcbloodline26",
+}
+
+# 17 flagged old accounts strictly blocked
+FLAGGED_HANDLES = {f"arcbloodline{i}" for i in range(1, 27)} - GREEN_HANDLES
+
 ASSETS_DIR = "assets"
+LOCAL_REELS_DIR = "reels"
+ARC_LOGO_PATH = "arc_logo.png"
 STYLISH_FONT_PATH = "Cinzel-Bold.ttf"
-
-TARGET_IG_ACCOUNTS_TO_SCRAPE = [
-    "https://www.instagram.com/luxereturns?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
-    "https://www.instagram.com/luxuriaaura?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
-    "https://www.instagram.com/intensecorb?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
-    "https://www.instagram.com/heritageclass?utm_source=ig_web_button_share_sheet&xtok=ZDNlZDc0MzIxNw==",
-    "https://www.instagram.com/worthy?utm_source=ig_web_button_share_sheet&mdxt=ZDNlZDc0MzIxNw==",
-    "https://www.instagram.com/luxurcore?utm_source=ig_web_button_share_sheet&rpxt=ZDNlZDc0MzIxNw==",
-    "https://www.instagram.com/toptierclasy?utm_source=ig_web_button_share_sheet&exln=ZDNlZDc0MzIxNw=="
-]
-
-USER_AGENTS = [
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15"
-]
-
-BROWSER_HEADERS = {
-    "User-Agent": USER_AGENTS[0],
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9"
-}
-
-BOT_EMBED_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
-    "Accept": "*/*"
-}
-
-# ==========================================
-# 2. GOLD STYLISH HOOKS, 3-4s FINAL LINES & VOICEOVER
-# ==========================================
 GOLD_HEX = "0xFFD700"
 
-ARC_FINAL_LINE_1 = "A R C  -  P R I V A T E   O N L I N E   W E A L T H   S Y S T E M"
-ARC_FINAL_LINE_2 = "J O I N   A R C   N O W   -   @ A R C B L O O D L I N E 3 0   B I O"
+# True = 2160x3840 (4K vertical Lanczos + unsharp) | False = 1080x1920 (fast HD vertical)
+ENABLE_4K_UPSCALE = True
 
-ARC_VOICEOVER_SCRIPTS = [
-    "ARC is the private online wealth system. Join now through the link in the bio.",
-    "Stop trading your time for a paycheck. Enter the ARC wealth system in the bio right now.",
-    "You do not need luck, you need a proven system. Join the private ARC network in the bio.",
-    "Most men just watch while builders execute. Step inside ARC through the bio link today.",
-    "Escape the rat race and build real digital income. Tap the bio link and join ARC now."
+# Source YouTube channels to pull clips randomly from (add more channels here anytime)
+SOURCE_YT_CHANNELS = [
+    "https://www.youtube.com/@SparkleOfLife-d2y/shorts",
+    "https://www.youtube.com/@Luxurylife4628/shorts",
 ]
 
-ARC_TOP_HOOKS = [
-    "Y O U   A R E   T O O   S M A R T   T O   S T A Y   B R O K E",
-    "Y O U R   S A L A R Y   I S   B U Y I N G   Y O U R   S I L E N C E",
-    "9 9 %   O F   M E N   D I E   W I T H   R E G R E T",
-    "N O B O D Y   I S   C O M I N G   T O   S A V E   Y O U",
-    "H A R D   W O R K   W I T H O U T   A   S Y S T E M   F A I L S",
-    "W H Y   W A T C H   O T H E R   M E N   L I V E   Y O U R   L I F E",
-    "T H E   M O N T H L Y   P A Y C H E C K   I S   A   T R A P",
-    "S I L E N C E   T H E   N O I S E .   B U I L D   L E V E R A G E .",
-    "C O M F O R T   I S   S L O W L Y   K I L L I N G   Y O U R   F U T U R E",
-    "Y O U   D O N T   L A C K   T A L E N T .   Y O U   L A C K   A   S Y S T E M .",
-    "S T O P   R E N T I N G   Y O U R   O W N   L I F E",
-    "O B E D I E N C E   W I L L   N E V E R   M A K E   Y O U   R I C H"
-]
-
-ARC_UNIFIED_MESSAGES = [(hook, ARC_FINAL_LINE_1, ARC_FINAL_LINE_2) for hook in ARC_TOP_HOOKS]
-
-CAPTION_OPENERS = [
-    "Most men spend their best years building someone else's dream.",
-    "Hard work alone never made anyone wealthy—leverage and systems do.",
-    "If you repeat the last 6 months for the next 5 years, nothing changes.",
-    "The difference between wishing and owning is the system you execute daily.",
-    "Stop watching from the sidelines while operators build real digital assets.",
-    "Freedom isn't bought with a monthly salary. It's built with online cashflow.",
-    "Nobody is coming to hand you the blueprint. You have to step up and claim it.",
-    "Comfort is the most expensive trap a man can fall into."
+# ==========================================
+# 2. IRRESISTIBLE 3–5 WORD END-CARD CTAS & CAPTIONS
+# ==========================================
+ARC_ONE_LINER_CTAS = [
+    "Stop watching. Enter ARC.",
+    "Your seat inside ARC waits.",
+    "Build in silence. Enter ARC.",
+    "Claim your place inside ARC.",
+    "Doors to ARC are open.",
+    "The blueprint lives inside ARC.",
+    "Enter ARC. Link in bio.",
+    "Step inside ARC today.",
 ]
 
 CAPTION_BODIES = [
-    "Inside ARC, we break down the exact digital wealth architecture to build independent online income from scratch.",
-    "ARC gives you the private network, scalable digital models, and step-by-step execution blueprint.",
-    "We built ARC for ambitious men ready to replace guesswork with a proven online income system.",
-    "Step inside the private ARC ecosystem and start building real digital leverage alongside serious operators."
+    "Most men spend years consuming while a few quietly build leverage.\n\nEverything you need to step out of the average lane is already mapped out inside ARC.",
+    "Nobody hands you freedom. You either build an independent system now or keep trading hours forever.\n\nARC is built for men who execute in silence.",
+    "Your circle sets your standard. Sit around spectators and stay stuck. Step inside a room of operators building real online cashflow.",
+    "A fixed paycheck caps your ceiling before you even begin. Ownership buys your time back.\n\nSee how ARC works.",
+    "Discipline creates leverage. Leverage creates freedom.\n\nDoors inside ARC do not stay open forever.",
 ]
 
 CAPTION_CTAS = [
-    "Tap the link in bio to enter ARC today.",
-    "Check @arcbloodline30 bio to claim your spot inside ARC.",
-    "Access the private portal via @arcbloodline30 bio right now.",
-    "Use the main link in bio (or visit @arcbloodline30) before doors close."
+    "Link in bio to enter ARC.",
+    "Comment \"ARC\" or tap the bio link.",
+    "Step inside ARC through the link in bio.",
+    "Bio link is live. Enter ARC.",
 ]
 
-NICHE_TAGS_POOL = [
-    "#luxurylifestyle", "#wealthmindset", "#entrepreneurship", "#digitalbusiness",
-    "#financialfreedom", "#oldmoney", "#successmindset", "#onlineincome",
-    "#billionairemindset", "#wealthbuilding", "#onlinebusiness", "#menwithclass",
-    "#financialindependence", "#mindset", "#businessowner", "#millionairemindset",
-    "#selfimprovement", "#oldmoneyaesthetic", "#moneymindset", "#wealthcreation"
+NICHE_TAGS = [
+    "#wealthmindset", "#oldmoney", "#digitalbusiness", "#financialfreedom",
+    "#entrepreneurship", "#onlineincome", "#successmindset", "#businessowner",
+    "#selfimprovement", "#wealthbuilding", "#darkluxury", "#mindset",
 ]
 
-NICHE_LABELS = [
-    "Niche: Wealth Architecture • Digital Business • Luxury Mindset",
-    "Category: Online Income Systems • Men's Self-Improvement • High-Status Living",
-    "Focus: Financial Sovereignty • Digital Entrepreneurship • Private Wealth Network",
-    "Topic: Scalable Online Assets • Wealth Creation • Executive Mindset"
+YT_TITLES = [
+    "Build in Silence. Enter ARC. #Shorts",
+    "Stop Watching. Start Building. #Shorts",
+    "Why Silent Operators Always Win #Shorts",
+    "Ownership Beats a Paycheck Every Time #Shorts",
+    "The Blueprint Nobody Talks About #Shorts",
 ]
 
-def generate_unique_caption_batch(count):
-    captions = []
-    for _ in range(count):
-        opener = random.choice(CAPTION_OPENERS)
-        body = random.choice(CAPTION_BODIES)
-        cta = random.choice(CAPTION_CTAS)
-        label = random.choice(NICHE_LABELS)
-        tags = " ".join(random.sample(NICHE_TAGS_POOL, k=4))
-        captions.append(f"{opener}\n\n{body}\n\n{cta}\n\n{label}\n{tags}")
-    return captions
+
+def generate_clean_caption(idx):
+    body = random.choice(CAPTION_BODIES)
+    cta = CAPTION_CTAS[idx % len(CAPTION_CTAS)]
+    tags = " ".join(random.sample(NICHE_TAGS, k=random.choice([2, 3, 4])))
+    return f"{body}\n\n{cta}\n\n{tags}"
+
 
 # ==========================================
-# 3. 5-LAYER AUTONOMOUS REEL HARVESTER
+# 3. INSTAGRAM ACCOUNT DISCOVERY
 # ==========================================
-def unescape_ig_payload(raw_text):
-    if not raw_text:
-        return ""
-    s = raw_text
-    for _ in range(2):
-        s = s.replace(r"\\/", "/").replace(r"\/", "/")
-        s = s.replace(r"\\u0026", "&").replace(r"\u0026", "&")
-        s = s.replace(r"\\u0022", '"').replace(r"\u0022", '"')
-        s = s.replace(r'\\"', '"').replace(r'\"', '"')
-    return s.replace("&quot;", '"').replace("&amp;", "&")
+def is_allowed_ig_account(username, page_name):
+    u = (username or "").strip().lower()
+    p = (page_name or "").strip().lower()
+    if u in GREEN_HANDLES:
+        return True
+    if u in FLAGGED_HANDLES:
+        return False
+    for bad in FLAGGED_HANDLES:
+        if re.search(rf"(^|[^a-z0-9]){re.escape(bad)}([^0-9]|$)", p):
+            return False
+    return True
 
-def extract_ig_handle(raw_entry):
-    if not raw_entry:
-        return ""
-    s = str(raw_entry).strip()
-    if "instagram.com" in s.lower():
-        try:
-            parsed = urllib.parse.urlparse(s if s.startswith("http") else f"https://{s}")
-            parts = [p for p in parsed.path.split("/") if p and p.lower() not in ("reel", "reels", "p", "stories", "tv")]
-            if parts:
-                return parts[0].strip().lstrip("@").lower()
-        except Exception:
-            pass
-    return s.lstrip("@").split("?")[0].strip("/").strip().lower()
 
-def resolve_and_normalize_link(raw_line):
-    if not raw_line:
-        return None, None
-    match = re.search(r'(https?://[^\s"\'<>]+)', str(raw_line).strip())
-    if not match:
-        return None, None
-    url = match.group(1).strip()
-    parsed = urllib.parse.urlparse(url)
-    host = parsed.netloc.lower().replace("m.instagram.com", "www.instagram.com")
-    path = parsed.path.rstrip("/")
-    ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', path)
-    if "instagram.com" in host and ig_match:
-        shortcode = ig_match.group(1)
-        return f"https://www.instagram.com/reel/{shortcode}/", f"ig_{shortcode}"
-    clean_url = f"{parsed.scheme}://{host}{path}"
-    return clean_url, clean_url
+def get_all_healthy_ig_accounts():
+    all_accs = []
+    seen = set()
+    for token in META_TOKENS:
+        url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/accounts"
+        params = {
+            "fields": "id,name,instagram_business_account{id,username}",
+            "limit": 100,
+            "access_token": token,
+        }
+        res = requests.get(url, params=params, timeout=(10, 20)).json()
+        if "error" in res:
+            log(f"[TOKEN WARN] {res['error'].get('message')}")
+            continue
+        for page in res.get("data", []):
+            ig_biz = page.get("instagram_business_account")
+            if ig_biz and "id" in ig_biz and ig_biz["id"] not in seen:
+                uname = ig_biz.get("username", "")
+                pname = page.get("name", "ARC_Node")
+                if is_allowed_ig_account(uname, pname):
+                    seen.add(ig_biz["id"])
+                    all_accs.append({
+                        "page_name": pname,
+                        "ig_user_id": ig_biz["id"],
+                        "ig_username": uname,
+                        "token": token,
+                    })
+                else:
+                    log(f"[BLOCKED FLAGGED] Skipping {uname or pname}")
+    log(
+        f"[IG FLEET] Active clean accounts ({len(all_accs)}): "
+        f"{[a['ig_username'] or a['page_name'] for a in all_accs]}"
+    )
+    return all_accs
 
-def load_set_file(filepath):
-    if not os.path.exists(filepath):
-        return set()
+
+# ==========================================
+# 4. RANDOM CLIP PICKER FROM SOURCE YT CHANNELS (+ OPTIONAL /reels)
+# ==========================================
+def get_media_duration(path):
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return set(line.strip() for line in f if line.strip())
-    except Exception:
-        return set()
-
-def append_to_set_file(filepath, identifier, memory_set):
-    if not identifier:
-        return
-    clean = str(identifier).strip()
-    if clean not in memory_set:
-        memory_set.add(clean)
-        try:
-            with open(filepath, "a", encoding="utf-8") as f:
-                f.write(f"{clean}\n")
-        except Exception:
-            pass
-
-def select_hourly_ordered_accounts(all_accounts, batch_size):
-    sorted_accs = sorted(all_accounts, key=lambda x: str(x["ig_user_id"]))
-    selected = sorted_accs[:min(batch_size, len(sorted_accs))]
-    log(f"[HOURLY WAVE] Locked {len(selected)} accounts in 1-hour cadence order.")
-    return selected
-
-def get_media_duration(input_path):
-    try:
-        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", input_path]
-        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        cmd = [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", path,
+        ]
+        res = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
+        )
         return float(res.stdout.decode("utf-8").strip())
     except Exception:
         return 0.0
 
-def verify_high_quality_reel_source(video_path):
-    if not os.path.exists(video_path) or os.path.getsize(video_path) < 350000:
-        return False
+
+def has_audio_stream(path):
     try:
-        dur = get_media_duration(video_path)
-        if dur < 9.0 or dur > 90.0:
-            return False
         cmd = [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,nb_frames",
-            "-of", "default=noprint_wrappers=1:nokey=1", video_path
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=codec_type", "-of", "csv=p=0", path,
         ]
-        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
-        lines = [x.strip() for x in res.stdout.decode("utf-8").strip().splitlines() if x.strip()]
-        if len(lines) < 2:
-            return False
-        w, h = int(lines[0]), int(lines[1])
-        if w < 480 or h < 640:
-            return False
-        if len(lines) >= 3 and lines[2].isdigit() and int(lines[2]) < 180:
-            return False
-        return True
+        res = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
+        )
+        return bool(res.stdout.decode("utf-8").strip())
     except Exception:
         return False
 
-def video_has_audio_stream(video_path):
-    try:
-        cmd = ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", video_path]
-        res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
-        return len(res.stdout.decode("utf-8").strip()) > 0
-    except Exception:
-        return False
 
-def save_and_verify_stream(raw_url, out_path, headers=None):
-    if not raw_url or not raw_url.startswith("http"):
-        return False
-    req_headers = headers or BROWSER_HEADERS
-    try:
-        r = requests.get(raw_url, headers=req_headers, allow_redirects=True, timeout=25)
-        if r.status_code == 200 and len(r.content) > 350000:
-            with open(out_path, "wb") as f:
-                f.write(r.content)
-            if verify_high_quality_reel_source(out_path):
-                return True
-            if os.path.exists(out_path):
-                os.remove(out_path)
-    except Exception:
-        pass
-    return False
+def fetch_random_urls_from_channels(channel_urls, pool_size=25):
+    candidates = []
+    shuffled_channels = list(channel_urls)
+    random.shuffle(shuffled_channels)
 
-def register_shortcode(handle, sc, v_url, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog):
-    if not sc or len(sc) < 8 or len(sc) > 15:
-        return 0
-    reserved = {"embed", "captioned", "reels", "stories", "explore", "accounts", handle.lower()}
-    if sc.lower() in reserved:
-        return 0
-    cid = f"ig_{sc}"
-    if cid in dead_shortcodes:
-        return 0
-    append_to_set_file(DISCOVERED_POOL_FILE, f"{handle}|{cid}", discovered_pool_set)
-    if cid not in seen_shortcodes:
-        seen_shortcodes.add(cid)
-        catalog.append((cid, v_url or "", f"https://www.instagram.com/reel/{sc}/", handle))
-        return 1
-    return 0
-
-def extract_all_shortcodes_from_text(handle, raw_text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog):
-    added = 0
-    clean = unescape_ig_payload(raw_text)
-    # 1. Direct shortcode + video_url pairs
-    for m in re.finditer(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})".{0,1200}?"video_url"\s*:\s*"(https?://[^"]+)"', clean, re.DOTALL):
-        added += register_shortcode(handle, m.group(1), m.group(2), seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-    # 2. All JSON shortcode fields (fixes the nested dimensions object bug)
-    for sc in re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean):
-        added += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-    # 3. All /reel/SHORTCODE and /p/SHORTCODE links in HTML or Markdown
-    for sc in re.findall(r'instagram\.com/(?:[A-Za-z0-9_.-]+/)?(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})', clean):
-        added += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-    for sc in re.findall(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})/', clean):
-        added += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-    return added
-
-def harvest_handle_all_existing_reels(handle, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog):
-    count = 0
-    session = requests.Session()
-
-    # LAYER 1: Instagram Embed & Captioned Embed (Unrestricted JSON + HTML parser)
-    for embed_url in [f"https://www.instagram.com/{handle}/embed/captioned/", f"https://www.instagram.com/{handle}/embed/"]:
-        try:
-            headers = dict(BROWSER_HEADERS)
-            headers["User-Agent"] = random.choice(USER_AGENTS)
-            r = session.get(embed_url, headers=headers, timeout=15)
-            if r.status_code == 200 and len(r.text) > 400:
-                count += extract_all_shortcodes_from_text(handle, r.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-        except Exception:
-            pass
-
-    # LAYER 2: Instagram Web Profile Info API + GraphQL 50-Reel Deep Pagination
-    try:
-        api_headers = {
-            "User-Agent": random.choice(USER_AGENTS),
-            "X-IG-App-ID": "936619743392459",
-            "X-ASBD-ID": "129477",
-            "X-IG-WWW-Claim": "0",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "*/*",
-            "Referer": f"https://www.instagram.com/{handle}/"
+    for ch_url in shuffled_channels:
+        ydl_opts = {
+            "extract_flat": True,
+            "playlistend": 60,
+            "quiet": True,
+            "no_warnings": True,
+            "logger": SilentYTDLLogger(),
+            "socket_timeout": 20,
         }
-        info_url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
-        r = session.get(info_url, headers=api_headers, timeout=15)
-        if r.status_code == 200 and len(r.text) > 200:
-            count += extract_all_shortcodes_from_text(handle, r.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-            uid_match = re.search(r'"id"\s*:\s*"(\d{5,25})"', r.text)
-            if uid_match:
-                ig_uid = uid_match.group(1)
-                variables = json.dumps({"id": ig_uid, "first": 50})
-                for q_hash in ["69cba40317214236af40e7efa697781d", "e769aa130647d2354c40ea6a439bfc08"]:
-                    gql_url = f"https://www.instagram.com/graphql/query/?query_hash={q_hash}&variables={urllib.parse.quote(variables)}"
-                    gr = session.get(gql_url, headers=api_headers, timeout=15)
-                    if gr.status_code == 200 and len(gr.text) > 200:
-                        count += extract_all_shortcodes_from_text(handle, gr.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-    except Exception:
-        pass
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(ch_url, download=False)
+            entries = info.get("entries") or []
+            for e in entries:
+                if not e:
+                    continue
+                vid_url = e.get("url") or (f"https://www.youtube.com/shorts/{e['id']}" if e.get("id") else None)
+                dur = e.get("duration") or 20
+                if vid_url and 8 <= dur <= 90:
+                    if not vid_url.startswith("http"):
+                        vid_url = f"https://www.youtube.com/watch?v={vid_url}"
+                    candidates.append(vid_url)
+        except Exception as err:
+            log(f"[SOURCE WARN] Could not scan {ch_url}: {err}")
 
-    # LAYER 3: Public Web Mirrors & Jina Reader Proxy (Bypasses Datacenter IP Blocks)
-    mirror_urls = [
-        f"https://r.jina.ai/https://www.instagram.com/{handle}/reels/",
-        f"https://r.jina.ai/https://www.instagram.com/{handle}/",
-        f"https://www.ddinstagram.com/u/{handle}"
-    ]
-    for m_url in mirror_urls:
-        if count >= 12:
+    random.shuffle(candidates)
+    return candidates[:pool_size]
+
+
+def collect_source_clips(target_count=9):
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    clips = []
+
+    if os.path.isdir(LOCAL_REELS_DIR):
+        for fname in os.listdir(LOCAL_REELS_DIR):
+            if fname.lower().endswith(".mp4"):
+                fpath = os.path.join(LOCAL_REELS_DIR, fname)
+                if get_media_duration(fpath) >= 8.0:
+                    clips.append((fpath, False))
+
+    random.shuffle(clips)
+
+    candidate_urls = fetch_random_urls_from_channels(SOURCE_YT_CHANNELS, pool_size=30)
+    for idx, vid_url in enumerate(candidate_urls):
+        if len(clips) >= target_count:
             break
+        out_path = os.path.join(ASSETS_DIR, f"src_yt_{idx}_{random.randint(100,999)}.mp4")
+        ydl_opts = {
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "merge_output_format": "mp4",
+            "outtmpl": out_path,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "logger": SilentYTDLLogger(),
+            "socket_timeout": 25,
+            "match_filter": yt_dlp.utils.match_filter_func("duration >= 8 & duration <= 90"),
+        }
         try:
-            r = requests.get(m_url, headers=BROWSER_HEADERS, timeout=14)
-            if r.status_code == 200 and len(r.text) > 200:
-                count += extract_all_shortcodes_from_text(handle, r.text, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(vid_url, download=True)
         except Exception:
             pass
 
-    # LAYER 4: yt-dlp Flat Profile Extraction
-    if count < 8:
-        for profile_url in [f"https://www.instagram.com/{handle}/reels/", f"https://www.instagram.com/{handle}/"]:
-            try:
-                ydl_opts = {
-                    "extract_flat": True,
-                    "playlistend": 60,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "logger": SilentYTDLLogger(),
-                    "socket_timeout": 12,
-                    "http_headers": BROWSER_HEADERS
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(profile_url, download=False)
-                    for entry in (info or {}).get("entries") or []:
-                        if not entry:
-                            continue
-                        sc = entry.get("id") or ""
-                        e_url = entry.get("url") or entry.get("webpage_url") or ""
-                        if not sc and e_url:
-                            m = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]{8,15})', e_url)
-                            if m:
-                                sc = m.group(1)
-                        count += register_shortcode(handle, sc, "", seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-            except Exception:
-                continue
-
-    return count
-
-def build_master_reel_catalog_once(dead_shortcodes):
-    catalog = []
-    seen_shortcodes = set()
-    discovered_pool_set = load_set_file(DISCOVERED_POOL_FILE)
-
-    clean_handles = []
-    for raw in TARGET_IG_ACCOUNTS_TO_SCRAPE:
-        h = extract_ig_handle(raw)
-        if h and h not in clean_handles:
-            clean_handles.append(h)
-
-    active_handles_set = set(clean_handles)
-    random.shuffle(clean_handles)
-
-    # 1. Harvest live reels across all 7 target accounts
-    for handle in clean_handles:
-        c = harvest_handle_all_existing_reels(handle, seen_shortcodes, dead_shortcodes, discovered_pool_set, catalog)
-        log(f"[CATALOG] Harvested {c} new Reels from @{handle}")
-        time.sleep(random.uniform(1.0, 2.2))
-
-    # 2. Load all previously discovered Reels from persistent pool for these 7 accounts
-    restored = 0
-    for entry in discovered_pool_set:
-        if "|" in entry:
-            h, cid = entry.split("|", 1)
-            h, cid = h.strip().lower(), cid.strip()
-            if h in active_handles_set and cid.startswith("ig_") and cid not in seen_shortcodes and cid not in dead_shortcodes:
-                sc = cid[3:]
-                seen_shortcodes.add(cid)
-                catalog.append((cid, "", f"https://www.instagram.com/reel/{sc}/", h))
-                restored += 1
-
-    # 3. Optional manual backup links if reel_links.txt has any
-    if os.path.exists(LINKS_FILE):
-        try:
-            with open(LINKS_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    clean_u, cid = resolve_and_normalize_link(line.strip())
-                    if clean_u and cid and cid not in seen_shortcodes and cid not in dead_shortcodes:
-                        seen_shortcodes.add(cid)
-                        catalog.append((cid, "", clean_u, "reel_links.txt"))
-        except Exception:
-            pass
-
-    random.shuffle(catalog)
-    log(f"[CATALOG READY] {len(catalog)} total unique Reels available across your 7 sources ({restored} loaded from saved pool).")
-    return catalog
-
-def try_route_embed_page(shortcode, out_path):
-    for prefix in ["reel", "p"]:
-        for suffix in ["embed/captioned/", "embed/"]:
-            embed_url = f"https://www.instagram.com/{prefix}/{shortcode}/{suffix}"
-            try:
-                r = requests.get(embed_url, headers=BROWSER_HEADERS, timeout=15)
-                if r.status_code == 200 and len(r.text) > 500:
-                    clean_html = unescape_ig_payload(r.text)
-                    if '"is_video":false' in clean_html and '"video_url"' not in clean_html:
-                        return False
-                    urls = re.findall(r'"video_url"\s*:\s*"(https?://[^"]+)"', clean_html)
-                    urls += re.findall(r'"contentUrl"\s*:\s*"(https?://[^"]+)"', clean_html)
-                    urls += re.findall(r'<meta[^>]+property="og:video"[^>]+content="(https?://[^"]+)"', clean_html)
-                    for u in urls:
-                        if save_and_verify_stream(u, out_path):
-                            return True
-            except Exception:
-                pass
-    return False
-
-def try_route_bot_proxies(shortcode, out_path):
-    for host in ["www.vxinstagram.com", "d.ddinstagram.com", "www.ddinstagram.com", "www.kkinstagram.com"]:
-        proxy_url = f"https://{host}/reel/{shortcode}"
-        try:
-            r = requests.get(proxy_url, headers=BOT_EMBED_HEADERS, allow_redirects=True, timeout=18)
-            if r.status_code == 200:
-                if len(r.content) > 350000 and "video" in r.headers.get("Content-Type", "").lower():
-                    with open(out_path, "wb") as f:
-                        f.write(r.content)
-                    if verify_high_quality_reel_source(out_path):
-                        return True
-                    if os.path.exists(out_path):
-                        os.remove(out_path)
-                clean_html = unescape_ig_payload(r.text)
-                og_urls = re.findall(r'<meta[^>]+property="og:video(?::secure_url)?"[^>]+content="(https?://[^"]+)"', clean_html)
-                for og_u in og_urls:
-                    if save_and_verify_stream(og_u, out_path):
-                        return True
-        except Exception:
-            pass
-    try:
-        vx_api = f"https://api.vxinstagram.com/reel/{shortcode}"
-        r = requests.get(vx_api, headers=BOT_EMBED_HEADERS, timeout=15)
-        if r.status_code == 200 and r.text.strip().startswith("{"):
-            for m in r.json().get("media_extended") or []:
-                if m.get("type") in ("video", "reel", None) and save_and_verify_stream(m.get("url", ""), out_path):
-                    return True
-    except Exception:
-        pass
-    return False
-
-def try_route_graphql_and_ytdlp(shortcode, clean_url, out_path):
-    for doc_id in ["8845758582119845", "10015901848480474"]:
-        try:
-            gql_headers = {
-                "User-Agent": BROWSER_HEADERS["User-Agent"],
-                "X-IG-App-ID": "936619743392459",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Origin": "https://www.instagram.com",
-                "Referer": clean_url
-            }
-            gql_data = {"variables": json.dumps({"shortcode": shortcode}), "doc_id": doc_id}
-            r = requests.post("https://www.instagram.com/graphql/query", headers=gql_headers, data=gql_data, timeout=15)
-            if r.status_code == 200 and "video_url" in r.text:
-                clean_json = unescape_ig_payload(r.text)
-                for raw_cdn in re.findall(r'"video_url"\s*:\s*"(https?://[^"]+)"', clean_json):
-                    if save_and_verify_stream(raw_cdn, out_path):
-                        return True
-        except Exception:
-            pass
-    ydl_opts = {
-        "format": "bestvideo[height<=1920][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "outtmpl": out_path,
-        "merge_output_format": "mp4",
-        "quiet": True,
-        "no_warnings": True,
-        "logger": SilentYTDLLogger(),
-        "socket_timeout": 18,
-        "http_headers": BROWSER_HEADERS
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info(clean_url, download=True)
-        if verify_high_quality_reel_source(out_path):
-            return True
-        if os.path.exists(out_path):
-            os.remove(out_path)
-    except Exception:
-        if os.path.exists(out_path):
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 200000 and get_media_duration(out_path) >= 8.0:
+            clips.append((out_path, True))
+            log(f"[RANDOM PICK] Downloaded {vid_url} (audio={has_audio_stream(out_path)})")
+        elif os.path.exists(out_path):
             try:
                 os.remove(out_path)
             except Exception:
                 pass
-    return False
 
-def download_instagram_reel_all_routes(clean_url, out_path):
-    ig_match = re.search(r'/(?:reel|reels|p)/([A-Za-z0-9_-]+)', clean_url)
-    shortcode = ig_match.group(1) if ig_match else ""
-    if not shortcode:
-        return False
-    if try_route_embed_page(shortcode, out_path):
-        return True
-    if try_route_bot_proxies(shortcode, out_path):
-        return True
-    if try_route_graphql_and_ytdlp(shortcode, clean_url, out_path):
-        return True
-    return False
+    random.shuffle(clips)
+    return clips
 
-def pick_random_reel_for_account(ig_user_id, master_catalog, posted_history, downloaded_cache, dead_shortcodes, used_in_wave):
-    os.makedirs(ASSETS_DIR, exist_ok=True)
-    # Never repost the same reel on the same account
-    eligible = [
-        item for item in master_catalog
-        if item[0] not in dead_shortcodes and f"{ig_user_id}:{item[0]}" not in posted_history
-    ]
-    if not eligible:
-        log(f"[HISTORY GUARD] Account {ig_user_id} has already posted all currently discovered reels.")
-        return None, None
 
-    not_used_this_wave = [item for item in eligible if item[0] not in used_in_wave]
-    already_used_this_wave = [item for item in eligible if item[0] in used_in_wave]
-    random.shuffle(not_used_this_wave)
-    random.shuffle(already_used_this_wave)
-    candidates = not_used_this_wave + already_used_this_wave
-
-    for canonical_id, media_url, permalink, source_handle in candidates:
-        if canonical_id in downloaded_cache and os.path.exists(downloaded_cache[canonical_id]):
-            used_in_wave.add(canonical_id)
-            log(f"[RANDOM PICK] Selected verified Reel {canonical_id} (from @{source_handle}) for {ig_user_id}")
-            return canonical_id, downloaded_cache[canonical_id]
-        full_path = os.path.join(ASSETS_DIR, f"master_{canonical_id}.mp4")
-        downloaded = False
-        if media_url:
-            downloaded = save_and_verify_stream(media_url, full_path)
-        if not downloaded and permalink:
-            downloaded = download_instagram_reel_all_routes(permalink, full_path)
-        if downloaded:
-            downloaded_cache[canonical_id] = full_path
-            used_in_wave.add(canonical_id)
-            log(f"[RANDOM PICK] Downloaded HD Reel {canonical_id} (from @{source_handle}) for {ig_user_id}")
-            return canonical_id, full_path
-        append_to_set_file(DEAD_SHORTCODES_FILE, canonical_id, dead_shortcodes)
-    return None, None
-
-# ==========================================
-# 4. GRAPH API ACCOUNT DISCOVERY
-# ==========================================
-def get_connected_instagram_accounts(token):
-    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/accounts"
-    params = {
-        "fields": "id,name,access_token,instagram_business_account{id,username}",
-        "limit": 100,
-        "access_token": token
-    }
-    response = requests.get(url, params=params, timeout=(10, 20)).json()
-    if "error" in response:
-        raise Exception(f"Token error: {response['error'].get('message')}")
-    accounts = []
-    for page in response.get("data", []):
-        ig_biz = page.get("instagram_business_account")
-        if ig_biz and "id" in ig_biz:
-            accounts.append({
-                "page_id": page.get("id"),
-                "page_name": page.get("name", "ARC_Node"),
-                "page_token": page.get("access_token", token),
-                "ig_user_id": ig_biz["id"],
-                "ig_username": ig_biz.get("username", ""),
-                "token": token
-            })
-    return accounts
-
-# ==========================================
-# 5. DEEP PHASH BREAKER + 4s GOLD FINAL LINES + UNCUT VOICEOVER
-# ==========================================
-def ensure_stylish_luxury_font():
+def ensure_stylish_font():
     if os.path.exists(STYLISH_FONT_PATH) and os.path.getsize(STYLISH_FONT_PATH) > 15000:
         return STYLISH_FONT_PATH
-    font_urls = [
+    for url in [
         "https://github.com/google/fonts/raw/main/ofl/cinzel/static/Cinzel-Bold.ttf",
-        "https://github.com/google/fonts/raw/main/ofl/playfairdisplay/static/PlayfairDisplay-Bold.ttf",
-        "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf"
-    ]
-    for f_url in font_urls:
+        "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf",
+    ]:
         try:
-            res = requests.get(f_url, timeout=(10, 20))
-            if res.status_code == 200 and len(res.content) > 15000:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200 and len(r.content) > 15000:
                 with open(STYLISH_FONT_PATH, "wb") as f:
-                    f.write(res.content)
+                    f.write(r.content)
                 return STYLISH_FONT_PATH
         except Exception:
             continue
     return "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 
-def generate_neural_voiceover(out_mp3_path):
-    script_text = random.choice(ARC_VOICEOVER_SCRIPTS)
-    raw_vo = f"{out_mp3_path}_raw.mp3"
-    voices = ["en-US-AndrewMultilingualNeural", "en-US-BrianMultilingualNeural", "en-US-ChristopherNeural"]
-    for voice_name in voices:
-        try:
-            cmd = [
-                "edge-tts",
-                "--voice", voice_name,
-                "--rate=+2%",
-                "--pitch=-2Hz",
-                "--text", script_text,
-                "--write-media", raw_vo
-            ]
-            subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
-            if os.path.exists(raw_vo) and os.path.getsize(raw_vo) > 4000:
-                trim_cmd = [
-                    "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-                    "-i", raw_vo,
-                    "-af", "silenceremove=start_periods=1:start_silence=0.04:start_threshold=-45dB",
-                    out_mp3_path
-                ]
-                subprocess.run(trim_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
-                if os.path.exists(raw_vo):
-                    os.remove(raw_vo)
-                if os.path.exists(out_mp3_path) and os.path.getsize(out_mp3_path) > 3000:
-                    return True
-        except Exception:
-            continue
-    if os.path.exists(raw_vo):
-        try:
-            os.remove(raw_vo)
-        except Exception:
-            pass
-    return False
 
-def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
-    vo_path = f"vo_temp_{node_idx}_{random.randint(100,999)}.mp3"
-    has_vo = False
-    vo_dur = 3.8
-    try:
-        has_vo = generate_neural_voiceover(vo_path)
-        if has_vo:
-            measured = get_media_duration(vo_path)
-            if measured > 1.5:
-                vo_dur = measured
-    except Exception:
-        has_vo = False
+def generate_cta_voiceover(cta_text, out_mp3):
+    voice = random.choice([
+        "en-US-AndrewMultilingualNeural",
+        "en-US-BrianMultilingualNeural",
+        "en-US-ChristopherNeural",
+    ])
+    cmd = [
+        "edge-tts",
+        "--voice", voice,
+        "--rate=-2%",
+        "--pitch=-4Hz",
+        "--text", cta_text,
+        "--write-media", out_mp3,
+    ]
+    subprocess.run(
+        cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=True
+    )
+    return get_media_duration(out_mp3)
 
-    # Guarantees ARC Final Lines stay on screen at least 4.0s and voiceover finishes completely
-    outro_duration = max(4.0, round(vo_dur + 0.85, 2))
 
-    speed_factor = round(random.uniform(1.03, 1.07), 3)
-    pts_mult = round(1.0 / speed_factor, 4)
-    zoom_w = random.randint(1124, 1168)
-    zoom_h = int(zoom_w * 1920 / 1080)
-    crop_x = random.randint(8, zoom_w - 1080 - 8)
-    crop_y = random.randint(12, zoom_h - 1920 - 12)
-    contrast_val = round(random.uniform(1.03, 1.07), 2)
-    sat_val = round(random.uniform(1.04, 1.10), 2)
-    gamma_val = round(random.uniform(0.96, 1.04), 2)
+# ==========================================
+# 5. FFMPEG RENDERER (4K UPSCALE + NO FLIP + 10–13s + LOGO + VOICE CTA + 2.5% BED)
+# ==========================================
+def render_arc_reel(src_clip, output_path, font_path, tag_id):
+    cta_text = random.choice(ARC_ONE_LINER_CTAS)
+    vo_path = f"vo_{tag_id}_{random.randint(100,999)}.mp3"
+    vo_dur = generate_cta_voiceover(cta_text, vo_path)
 
-    raw_dur = get_media_duration(input_path) / speed_factor
-    if 11.5 <= raw_dur <= 15.0:
-        final_duration = round(raw_dur, 2)
-    elif raw_dur > 15.0:
-        final_duration = round(random.uniform(12.5, 15.0), 2)
+    end_dur = round(max(2.1, min(3.6, vo_dur + 0.4)), 2)
+    target_total = round(random.uniform(10.5, 12.8), 2)
+    main_dur = round(max(7.5, target_total - end_dur), 2)
+    total_dur = round(main_dur + end_dur, 2)
+
+    src_dur = get_media_duration(src_clip)
+    st = round(random.uniform(0.15, 0.45), 2) if src_dur > total_dur + 1.0 else 0.0
+
+    clip_has_audio = has_audio_stream(src_clip)
+    logo_exists = os.path.exists(ARC_LOGO_PATH) and os.path.getsize(ARC_LOGO_PATH) > 500
+
+    # Resolution & sharpness tuning (4K vertical 2160x3840 vs HD vertical 1080x1920)
+    if ENABLE_4K_UPSCALE:
+        out_w, out_h = 2160, 3840
+        pre_w, pre_h = 2204, 3917
+        mini_logo_px = 84
+        big_logo_px = 680
+        top_arc_px = 56
+        cta_px = 86
+        end_arc_px = 210
+        logo_xy = "56:92"
+        top_arc_y = "100"
+        end_logo_dy = "-230"
+        cta_y = "(h/2)+260"
+        end_arc_y = "(h/2)-260"
+        end_cta_y = "(h/2)+110"
+        crf_val = "17"
+        preset_val = "veryfast"
     else:
-        final_duration = round(random.uniform(12.0, 14.2), 2)
+        out_w, out_h = 1080, 1920
+        pre_w, pre_h = 1102, 1958
+        mini_logo_px = 42
+        big_logo_px = 340
+        top_arc_px = 28
+        cta_px = 44
+        end_arc_px = 110
+        logo_xy = "28:46"
+        top_arc_y = "50"
+        end_logo_dy = "-115"
+        cta_y = "(h/2)+130"
+        end_arc_y = "(h/2)-130"
+        end_cta_y = "(h/2)+55"
+        crf_val = "18"
+        preset_val = "faster"
 
-    min_needed_dur = round(outro_duration + 6.0, 2)
-    if final_duration < min_needed_dur:
-        final_duration = min(15.5, min_needed_dur)
+    # Sub-audible custom synth bed (2.5% volume — virtually inaudible to humans)
+    f1 = round(random.uniform(44.0, 66.0), 1)
+    f2 = round(f1 * 1.5, 1)
+    f3 = round(random.uniform(118.0, 162.0), 1)
+    sub_vol_1 = round(random.uniform(0.010, 0.013), 4)
+    sub_vol_2 = round(random.uniform(0.006, 0.009), 4)
+    sub_vol_3 = round(random.uniform(0.004, 0.006), 4)
 
-    pitch_start = round(final_duration - outro_duration, 2)
-    pitch_delay_ms = int(pitch_start * 1000)
+    cta_safe = cta_text.replace("'", "").replace(":", " -")
+    delay_ms = int(main_dur * 1000)
+    epoch_jitter = int(time.time()) - random.randint(600, 86400)
 
-    epoch_jitter = int(time.time()) - random.randint(600, 259200)
-    msg_tuple = random.choice(ARC_UNIFIED_MESSAGES)
-    top_hook, center_line1, center_line2 = [t.replace("'", "").replace(":", " -") for t in msg_tuple]
+    if logo_exists:
+        v_filter = (
+            f"[2:v]split=2[logo_raw1][logo_raw2];"
+            f"[logo_raw1]scale={mini_logo_px}:{mini_logo_px}:force_original_aspect_ratio=decrease:flags=lanczos,"
+            f"format=rgba,colorchannelmixer=aa=0.45[mini_logo];"
+            f"[logo_raw2]scale={big_logo_px}:{big_logo_px}:force_original_aspect_ratio=decrease:flags=lanczos,"
+            f"format=rgba[big_logo];"
+            f"[0:v]trim=start={st}:duration={main_dur},setpts=PTS-STARTPTS,"
+            f"scale={pre_w}:{pre_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"crop={out_w}:{out_h},unsharp=5:5:0.45:3:3:0.0,"
+            f"fps=30,setsar=1,eq=contrast=1.02:saturation=1.03:brightness=0.005[main_base];"
+            f"[main_base][mini_logo]overlay={logo_xy}[main_logo];"
+            f"[main_logo]drawtext=fontfile={font_path}:text='ARC':fontcolor=white@0.22:fontsize={top_arc_px}:"
+            f"x=(w-text_w)/2:y={top_arc_y},format=yuv420p[main_v];"
+            f"color=c=0x080808:s={out_w}x{out_h}:d={end_dur}:r=30[end_bg];"
+            f"[end_bg][big_logo]overlay=(W-w)/2:(H-h)/2{end_logo_dy}[end_logo];"
+            f"[end_logo]drawtext=fontfile={font_path}:text='{cta_safe}':fontcolor={GOLD_HEX}:fontsize={cta_px}:"
+            f"x=(w-text_w)/2:y={cta_y}:shadowcolor=black:shadowx=2:shadowy=2,"
+            f"fps=30,setsar=1,format=yuv420p[end_v];"
+            f"[main_v][end_v]concat=n=2:v=1:a=0[vout];"
+        )
+    else:
+        log("[WARN] arc_logo.png not found in repo root — using gold typography fallback.")
+        v_filter = (
+            f"[0:v]trim=start={st}:duration={main_dur},setpts=PTS-STARTPTS,"
+            f"scale={pre_w}:{pre_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"crop={out_w}:{out_h},unsharp=5:5:0.45:3:3:0.0,"
+            f"fps=30,setsar=1,eq=contrast=1.02:saturation=1.03:brightness=0.005,"
+            f"drawtext=fontfile={font_path}:text='ARC':fontcolor=white@0.22:fontsize={top_arc_px}:"
+            f"x=(w-text_w)/2:y={top_arc_y},format=yuv420p[main_v];"
+            f"color=c=0x080808:s={out_w}x{out_h}:d={end_dur}:r=30,"
+            f"drawtext=fontfile={font_path}:text='A R C':fontcolor={GOLD_HEX}:fontsize={end_arc_px}:"
+            f"x=(w-text_w)/2:y={end_arc_y},"
+            f"drawtext=fontfile={font_path}:text='{cta_safe}':fontcolor=white@0.95:fontsize={cta_px}:"
+            f"x=(w-text_w)/2:y={end_cta_y},"
+            f"fps=30,setsar=1,format=yuv420p[end_v];"
+            f"[main_v][end_v]concat=n=2:v=1:a=0[vout];"
+        )
 
-    top_y = random.randint(235, 275)
-    center_y_shift = random.choice([-20, 0, 20])
-    c1_y = f"(h/2)-44+{center_y_shift}"
-    c2_y = f"(h/2)+26+{center_y_shift}"
-    band_y = f"(h/2)-96+{center_y_shift}"
+    if clip_has_audio:
+        orig_a_filter = (
+            f"[0:a]atrim=start={st}:duration={total_dur},asetpts=PTS-STARTPTS,"
+            f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"volume='if(lt(t,{main_dur}),0.85,0.22)':eval=frame,"
+            f"apad=whole_dur={total_dur},atrim=0:{total_dur}[orig_a];"
+        )
+    else:
+        orig_a_filter = (
+            f"aevalsrc=0.04*sin(2*PI*55*t)+0.02*sin(2*PI*82.4*t):s=48000:d={total_dur},"
+            f"aformat=sample_fmts=fltp:channel_layouts=stereo[orig_a];"
+        )
 
-    vf_chain = (
-        f"setpts={pts_mult}*PTS,"
-        f"scale={zoom_w}:{zoom_h}:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,"
-        f"crop=1080:1920:{crop_x}:{crop_y},fps=30,"
-        f"eq=contrast={contrast_val}:saturation={sat_val}:gamma={gamma_val},"
-        f"unsharp=lx=5:ly=5:la=0.65:cx=3:cy=3:ca=0.15,"
-        f"drawtext=fontfile={font_path}:text='{top_hook}':expansion=none:"
-        f"fontcolor={GOLD_HEX}:fontsize=26:shadowcolor=black@0.98:shadowx=2:shadowy=2:"
-        f"box=1:boxcolor=black@0.82:boxborderw=16:"
-        f"x=(w-text_w)/2:y={top_y}:enable='lt(t,{pitch_start})',"
-        f"drawbox=x=0:y={band_y}:w=iw:h=185:color=black@0.72:t=fill:enable='gte(t,{pitch_start})',"
-        f"drawtext=fontfile={font_path}:text='{center_line1}':expansion=none:"
-        f"fontcolor={GOLD_HEX}:fontsize=22:shadowcolor=black@0.98:shadowx=2:shadowy=2:"
-        f"box=1:boxcolor=black@0.92:boxborderw=14:"
-        f"x=(w-text_w)/2:y={c1_y}:enable='gte(t,{pitch_start})',"
-        f"drawtext=fontfile={font_path}:text='{center_line2}':expansion=none:"
-        f"fontcolor={GOLD_HEX}:fontsize=23:shadowcolor=black@0.98:shadowx=2:shadowy=2:"
-        f"box=1:boxcolor=black@0.92:boxborderw=14:"
-        f"x=(w-text_w)/2:y={c2_y}:enable='gte(t,{pitch_start})'"
+    a_filter = (
+        orig_a_filter
+        + f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+        f"volume=1.65,adelay={delay_ms}|{delay_ms},"
+        f"apad=whole_dur={total_dur},atrim=0:{total_dur}[vo_a];"
+        f"aevalsrc={sub_vol_1}*sin(2*PI*{f1}*t)+{sub_vol_2}*sin(2*PI*{f2}*t)+{sub_vol_3}*sin(2*PI*{f3}*t):"
+        f"s=48000:d={total_dur},aformat=sample_fmts=fltp:channel_layouts=stereo[sub_bed];"
+        f"[orig_a][vo_a][sub_bed]amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
+        f"alimiter=limit=0.95,afade=t=out:st={round(total_dur-0.25,2)}:d=0.25[aout]"
     )
 
-    fade_out_st = round(max(1.0, final_duration - 0.25), 2)
-    has_orig_audio = video_has_audio_stream(input_path)
+    cmd = [
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-stream_loop", "-1", "-i", src_clip,
+        "-i", vo_path,
+    ]
+    if logo_exists:
+        cmd.extend(["-i", ARC_LOGO_PATH])
+
+    cmd.extend([
+        "-filter_complex", v_filter + a_filter,
+        "-map", "[vout]", "-map", "[aout]",
+        "-t", str(total_dur),
+        "-c:v", "libx264", "-profile:v", "high", "-level:v", "5.1",
+        "-crf", crf_val, "-preset", preset_val, "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+        "-map_metadata", "-1", "-metadata", f"creation_time={epoch_jitter}",
+        output_path,
+    ])
 
     try:
-        if has_orig_audio and has_vo:
-            filter_complex = (
-                f"[0:v]{vf_chain}[vout];"
-                f"[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-                f"atempo={speed_factor},highpass=f=55,lowpass=f=15200,"
-                f"volume=1.0:enable='lt(t,{pitch_start})',volume=0.18:enable='gte(t,{pitch_start})'[bg];"
-                f"[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-                f"adelay={pitch_delay_ms}|{pitch_delay_ms},volume=2.20,apad=whole_dur={final_duration}[vo];"
-                f"[bg][vo]amix=inputs=2:duration=first:dropout_transition=0,"
-                f"afade=t=out:st={fade_out_st}:d=0.25[aout]"
-            )
-            cmd = [
-                "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-                "-stream_loop", "-1", "-t", str(round(final_duration * speed_factor + 1.5, 2)), "-i", input_path,
-                "-i", vo_path,
-                "-filter_complex", filter_complex,
-                "-map", "[vout]", "-map", "[aout]",
-                "-t", str(final_duration),
-                "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.2",
-                "-crf", "16", "-maxrate", "10M", "-bufsize", "16M",
-                "-preset", "faster", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                "-map_metadata", "-1", "-metadata", f"creation_time={epoch_jitter}",
-                output_path
-            ]
-            res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
-            if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 200000:
-                return output_path
-
-        fallback_cmd = [
-            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-stream_loop", "-1", "-t", str(round(final_duration * speed_factor + 1.5, 2)), "-i", input_path,
-            "-vf", vf_chain,
-            "-t", str(final_duration),
-            "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.2",
-            "-crf", "16", "-maxrate", "10M", "-bufsize", "16M",
-            "-preset", "faster", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-            "-map_metadata", "-1", "-metadata", f"creation_time={epoch_jitter}",
-            output_path
-        ]
-        res2 = subprocess.run(fallback_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
-        if res2.returncode != 0:
-            raise Exception(res2.stderr.decode("utf-8", errors="ignore"))
+        res = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240
+        )
+        if res.returncode != 0 or not os.path.exists(output_path):
+            raise Exception(res.stderr.decode("utf-8", errors="ignore"))
+        log(
+            f"[RENDER] {out_w}x{out_h} | {total_dur}s (Main {main_dur}s + EndCard {end_dur}s | CTA: '{cta_text}')"
+        )
     finally:
         if os.path.exists(vo_path):
             try:
@@ -815,168 +513,177 @@ def mutate_video_for_account(input_path, output_path, font_path, node_idx=0):
                 pass
     return output_path
 
+
 # ==========================================
-# 6. RELAY UPLOAD & GRAPH API PUBLISH
+# 6. INSTAGRAM & YOUTUBE PUBLISHERS
 # ==========================================
 def upload_for_meta_download(file_path):
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "Accept-Language": "en-US,en;q=0.9"}
-    try:
-        with open(file_path, "rb") as f:
-            res = requests.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 90))
-        if res.status_code == 200 and res.text.strip().startswith("https://"):
-            return res.text.strip()
-    except Exception:
-        pass
-    try:
-        with open(file_path, "rb") as f:
-            res = requests.post("https://litterbox.catbox.moe/resources/internals/api.php", data={"reqtype": "fileupload", "time": "1h"}, files={"fileToUpload": f}, headers=headers, timeout=(15, 90))
-        if res.status_code == 200 and res.text.strip().startswith("https://"):
-            return res.text.strip()
-    except Exception:
-        pass
-    try:
-        with open(file_path, "rb") as f:
-            res = requests.post("https://uguu.se/upload", files={"files[]": f}, headers=headers, timeout=(15, 90)).json()
-        if res.get("success") and res.get("files"):
-            return res["files"][0]["url"]
-    except Exception:
-        pass
-    try:
-        with open(file_path, "rb") as f:
-            response = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": f}, headers=headers, timeout=(15, 90)).json()
-        if "data" in response and "url" in response["data"]:
-            return response["data"]["url"].replace("tmpfiles.org/", "tmpfiles.org/dl/")
-    except Exception:
-        pass
-    with open(file_path, "rb") as f:
-        res = requests.post("https://0x0.st", files={"file": f}, headers=headers, timeout=(15, 90))
-    if res.status_code == 200 and res.text.strip().startswith("https://"):
-        return res.text.strip()
-    raise Exception("All 5 relay upload hosts timed out.")
+    headers = {"User-Agent": "Mozilla/5.0"}
+    for url, data, key in [
+        ("https://catbox.moe/user/api.php", {"reqtype": "fileupload"}, "fileToUpload"),
+        ("https://litterbox.catbox.moe/resources/internals/api.php", {"reqtype": "fileupload", "time": "1h"}, "fileToUpload"),
+    ]:
+        try:
+            with open(file_path, "rb") as f:
+                r = requests.post(url, data=data, files={key: f}, headers=headers, timeout=(15, 120))
+            if r.status_code == 200 and r.text.strip().startswith("https://"):
+                return r.text.strip()
+        except Exception:
+            pass
+    raise Exception("Relay upload failed.")
 
-def publish_reel_to_instagram(ig_user_id, video_url, caption, token):
-    container_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media"
-    payload = {
-        "media_type": "REELS",
-        "video_url": video_url,
-        "caption": caption,
-        "share_to_feed": "true",
-        "thumb_offset": str(random.randint(1500, 3500)),
-        "access_token": token
-    }
-    res = requests.post(container_url, data=payload, timeout=(10, 30)).json()
-    if "id" not in res:
-        raise Exception(f"Container failed: {res}")
-    creation_id = res["id"]
-    status_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{creation_id}"
-    time.sleep(22)
+
+def publish_ig_reel(ig_user_id, video_url, caption, token):
+  r = requests.post(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media",
+        data={
+            "media_type": "REELS",
+            "video_url": video_url,
+            "caption": caption,
+            "share_to_feed": "true",
+            "access_token": token,
+        },
+        timeout=(10, 30),
+    ).json()
+    if "id" not in r:
+        raise Exception(f"IG Container failed: {r}")
+    cid = r["id"]
+    time.sleep(20)
     for _ in range(18):
-        status_res = requests.get(status_url, params={"fields": "status_code,status", "access_token": token}, timeout=(10, 20)).json()
-        status_code = status_res.get("status_code")
-        if status_code == "FINISHED":
+        st = requests.get(
+            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{cid}",
+            params={"fields": "status_code", "access_token": token},
+            timeout=15,
+        ).json()
+        if st.get("status_code") == "FINISHED":
             break
-        elif status_code in ("ERROR", "EXPIRED"):
-            raise Exception(f"Meta rejected video: {status_res}")
+        if st.get("status_code") in ("ERROR", "EXPIRED"):
+            raise Exception(f"Meta rejected: {st}")
         time.sleep(10)
-    else:
-        raise Exception("Meta video processing timed out.")
-    publish_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish"
-    publish_res = requests.post(publish_url, data={"creation_id": creation_id, "access_token": token}, timeout=(10, 30)).json()
-    if "id" not in publish_res:
-        raise Exception(f"Publish failed: {publish_res}")
-    log(f"[SUCCESS] PUBLISHED 1-HR CADENCE REEL! Media ID: {publish_res['id']}")
+    pub = requests.post(
+        f"https://graph.facebook.com/{GRAPH_API_VERSION}/{ig_user_id}/media_publish",
+        data={"creation_id": cid, "access_token": token},
+        timeout=(10, 30),
+    ).json()
+    if "id" not in pub:
+        raise Exception(f"IG Publish failed: {pub}")
+    log(f"[IG SUCCESS] Published Reel! Media ID: {pub['id']}")
+
+
+def publish_yt_short(file_path, title, description, refresh_token):
+    tok_res = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": YT_CLIENT_ID,
+            "client_secret": YT_CLIENT_SECRET,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+        timeout=20,
+    ).json()
+    access_token = tok_res.get("access_token")
+    if not access_token:
+        raise Exception(f"YT OAuth refresh failed: {tok_res}")
+
+    meta = {
+        "snippet": {"title": title[:95], "description": description, "categoryId": "22"},
+        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
+    }
+    init_res = requests.post(
+        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=UTF-8",
+        },
+        data=json.dumps(meta),
+        timeout=30,
+    )
+    upload_url = init_res.headers.get("Location")
+    if not upload_url:
+        raise Exception(f"YT init failed: {init_res.text}")
+
+    with open(file_path, "rb") as f:
+        up_res = requests.put(upload_url, headers={"Content-Type": "video/mp4"}, data=f, timeout=180)
+    if up_res.status_code not in (200, 201):
+        raise Exception(f"YT upload failed: {up_res.text}")
+    log(f"[YT SUCCESS] Published Short! Video ID: {up_res.json().get('id')}")
+
 
 # ==========================================
-# 7. MAIN EXECUTION (DYNAMIC 1-HOUR BRACKET PACING)
+# 7. MAIN EXECUTION (RANDOM PER ACCOUNT)
 # ==========================================
 def main():
-    wave_start_ts = time.time()
-    log("=== ARC 1-HOUR AUTONOMOUS HARVESTER ENGINE STARTED ===")
+    log("=== ARC AUTONOMOUS DISTRIBUTION ENGINE STARTED ===")
     ensure_edge_tts_installed()
-    active_tokens = [t.strip() for t in META_TOKENS if t and t.strip()]
-    if not active_tokens:
-        log("[OVERFLOW] META_TOKEN_1 not found in environment. Exiting cleanly.")
-        return
-    font_path = ensure_stylish_luxury_font()
-    posted_history = load_set_file(HISTORY_FILE)
-    dead_shortcodes = load_set_file(DEAD_SHORTCODES_FILE)
-    all_accounts = []
-    seen_ig_ids = set()
-    for token in active_tokens:
-        try:
-            for a in get_connected_instagram_accounts(token):
-                if a["ig_user_id"] not in seen_ig_ids:
-                    seen_ig_ids.add(a["ig_user_id"])
-                    all_accounts.append(a)
-        except Exception as e:
-            log(f"[OVERFLOW] Token check warning bypassed: {e}")
-    if not all_accounts:
-        log("[OVERFLOW] Zero Instagram Business accounts discovered. Exiting cleanly.")
-        return
+    font_path = ensure_stylish_font()
 
-    wave_accounts = select_hourly_ordered_accounts(all_accounts, ACCOUNTS_PER_WAVE)
-    total_nodes = len(wave_accounts)
-    caption_batch = generate_unique_caption_batch(total_nodes)
-    master_catalog = build_master_reel_catalog_once(dead_shortcodes)
-    downloaded_cache = {}
-    used_in_wave = set()
-    success_count = 0
+    clip_pool = collect_source_clips(target_count=9)
+    if not clip_pool:
+        log("[ERROR] No source clips available.")
+        return
 
     try:
-        for index, acc in enumerate(wave_accounts):
-            ig_uid = str(acc["ig_user_id"])
-            log(f"\n--- NODE [{index+1}/{total_nodes}]: {acc['page_name']} ({ig_uid}) ---")
-            mutated_output = f"arc_uhd_gold_{index}.mp4"
+        ig_accounts = get_all_healthy_ig_accounts()
+        random.shuffle(ig_accounts)
+        ig_ok = 0
+
+        for idx, acc in enumerate(ig_accounts):
+            log(f"\n--- IG [{idx+1}/{len(ig_accounts)}]: {acc['ig_username'] or acc['page_name']} ---")
+            out_file = f"arc_ig_{idx}.mp4"
             try:
-                chosen_id, source_video = pick_random_reel_for_account(
-                    ig_uid,
-                    master_catalog,
-                    posted_history,
-                    downloaded_cache,
-                    dead_shortcodes,
-                    used_in_wave
-                )
-                if not source_video or not os.path.exists(source_video):
-                    log(f"[OVERFLOW] No unposted Reel available for {acc['page_name']}, moving to next node...")
-                    continue
-                mutate_video_for_account(source_video, mutated_output, font_path, node_idx=index)
-                public_url = upload_for_meta_download(mutated_output)
-                publish_reel_to_instagram(ig_uid, public_url, caption_batch[index], acc["token"])
-                append_to_set_file(HISTORY_FILE, f"{ig_uid}:{chosen_id}", posted_history)
-                success_count += 1
+                src_clip, _ = random.choice(clip_pool)
+                render_arc_reel(src_clip, out_file, font_path, f"ig{idx}")
+                pub_url = upload_for_meta_download(out_file)
+                publish_ig_reel(acc["ig_user_id"], pub_url, generate_clean_caption(idx), acc["token"])
+                ig_ok += 1
             except Exception as e:
-                log(f"[OVERFLOW] Bypassed error on {acc['page_name']} and continuing wave: {e}")
+                log(f"[IG SKIP] {e}")
             finally:
-                if os.path.exists(mutated_output):
+                if os.path.exists(out_file):
                     try:
-                        os.remove(mutated_output)
+                        os.remove(out_file)
                     except Exception:
                         pass
+            if idx < len(ig_accounts) - 1:
+                wait_s = random.randint(40, 80)
+                log(f"[PACING] Sleeping {wait_s}s...")
+                time.sleep(wait_s)
 
-            remaining_nodes = total_nodes - 1 - index
-            if remaining_nodes > 0:
-                elapsed_so_far = time.time() - wave_start_ts
-                time_left_in_window = max(0.0, TARGET_WAVE_WINDOW_SECONDS - elapsed_so_far)
-                estimated_work_time = remaining_nodes * 52.0
-                available_sleep_pool = max(remaining_nodes * 15.0, time_left_in_window - estimated_work_time)
-                avg_sleep = available_sleep_pool / remaining_nodes
-                jitter_min = max(12, int(avg_sleep * 0.65))
-                jitter_max = max(jitter_min + 10, min(165, int(avg_sleep * 1.35)))
-                cooldown_sec = random.randint(jitter_min, jitter_max)
-                log(f"[1-HR PACING] Randomized spacing cooldown: {cooldown_sec}s before next account...")
-                time.sleep(cooldown_sec)
-    finally:
-        for cached_file in downloaded_cache.values():
-            if cached_file and os.path.exists(cached_file):
+        yt_ok = 0
+        if YT_CLIENT_ID and YT_CLIENT_SECRET and YT_REFRESH_TOKENS:
+            for idx, r_tok in enumerate(YT_REFRESH_TOKENS):
+                log(f"\n--- YT CHANNEL [{idx+1}/{len(YT_REFRESH_TOKENS)}] ---")
+                out_file = f"arc_yt_{idx}.mp4"
                 try:
-                    os.remove(cached_file)
+                    src_clip, _ = random.choice(clip_pool)
+                    render_arc_reel(src_clip, out_file, font_path, f"yt{idx}")
+                    publish_yt_short(out_file, random.choice(YT_TITLES), generate_clean_caption(idx), r_tok)
+                    yt_ok += 1
+                except Exception as e:
+                    log(f"[YT SKIP] {e}")
+                finally:
+                    if os.path.exists(out_file):
+                        try:
+                            os.remove(out_file)
+                        except Exception:
+                            pass
+                if idx < len(YT_REFRESH_TOKENS) - 1:
+                    time.sleep(random.randint(20, 45))
+        else:
+            log("[YT INFO] YouTube secrets not added yet — skipping YT lane cleanly.")
+
+        log(
+            f"\n=== WAVE COMPLETE: {ig_ok}/{len(ig_accounts)} IG REELS | "
+            f"{yt_ok}/{len(YT_REFRESH_TOKENS)} YT SHORTS ==="
+        )
+    finally:
+        for fpath, is_temp in clip_pool:
+            if is_temp and os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
                 except Exception:
                     pass
-    log(f"\n=== HOURLY WAVE COMPLETE: {success_count}/{total_nodes} REELS PUBLISHED IN {int(time.time() - wave_start_ts)}s ===")
+
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as fatal_err:
-        log(f"[GLOBAL OVERFLOW] Exception caught: {fatal_err}")
-        sys.exit(0)
+    main()
