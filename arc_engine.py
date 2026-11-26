@@ -1,12 +1,4 @@
-import os
-import re
-import sys
-import json
-import time
-import random
-import requests
-import subprocess
-import yt_dlp
+import os, re, sys, glob, json, time, random, requests, subprocess, yt_dlp
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -23,6 +15,7 @@ META_TOKENS = [t.strip() for t in [os.getenv("META_TOKEN_1"), os.getenv("META_TO
 YT_CLIENT_ID = (os.getenv("YT_CLIENT_ID") or "").strip()
 YT_CLIENT_SECRET = (os.getenv("YT_CLIENT_SECRET") or "").strip()
 YT_REFRESH_TOKENS = [t.strip() for t in re.split(r"[\n,]+", os.getenv("YT_REFRESH_TOKENS") or "") if t.strip()]
+YT_COOKIES_TXT = (os.getenv("YT_COOKIES_TXT") or "").strip()
 
 API = "v20.0"
 GREEN_HANDLES = {"arcbloodline2", "arcbloodline3", "arcbloodline4", "arcbloodline9", "arcbloodline19", "arcbloodline20", "arcbloodline23", "arcbloodline25", "arcbloodline26"}
@@ -81,10 +74,8 @@ def make_caption(idx):
 
 def is_allowed_ig(username, page_name):
     u, p = (username or "").strip().lower(), (page_name or "").strip().lower()
-    if u in GREEN_HANDLES:
-        return True
-    if u in FLAGGED_HANDLES:
-        return False
+    if u in GREEN_HANDLES: return True
+    if u in FLAGGED_HANDLES: return False
     return not any(re.search(rf"(^|[^a-z0-9]){re.escape(b)}([^0-9]|$)", p) for b in FLAGGED_HANDLES)
 
 def get_ig_accounts():
@@ -118,56 +109,110 @@ def has_audio(path):
     except Exception:
         return False
 
+def scrape_channel_short_ids(ch_url, cookie_file=None):
+    vids = []
+    opts = {"extract_flat": "in_playlist", "playlistend": 60, "quiet": True, "no_warnings": True, "logger": SilentLogger(), "socket_timeout": 25}
+    if cookie_file: opts["cookiefile"] = cookie_file
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(ch_url, download=False)
+        for e in (info.get("entries") or []):
+            if not e: continue
+            vid = e.get("id")
+            if vid and len(vid) == 11 and (e.get("duration") or 20) <= 120:
+                vids.append(vid)
+    except Exception as err:
+        log(f"[SCAN WARN] yt-dlp flat scan {ch_url}: {str(err)[:140]}")
+
+    if not vids:
+        try:
+            hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", "Accept-Language": "en-US,en;q=0.9"}
+            html = requests.get(ch_url, headers=hdrs, cookies={"CONSENT": "YES+cb.20210328-17-p0.en+FX+667"}, timeout=20).text
+            vids = list(dict.fromkeys(re.findall(r"/shorts/([A-Za-z0-9_-]{11})", html)))
+            if not vids:
+                vids = list(dict.fromkeys(re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', html)))
+            if not vids:
+                m = re.search(r'"externalId":"(UC[A-Za-z0-9_-]{22})"', html) or re.search(r'"channelId":"(UC[A-Za-z0-9_-]{22})"', html)
+                if m:
+                    rss = requests.get(f"https://www.youtube.com/feeds/videos.xml?channel_id={m.group(1)}", timeout=15).text
+                    vids = list(dict.fromkeys(re.findall(r"<yt:videoId>([A-Za-z0-9_-]{11})</yt:videoId>", rss)))
+        except Exception as err:
+            log(f"[HTML SCAN WARN] {ch_url}: {str(err)[:140]}")
+
+    log(f"[CHANNEL] {ch_url} -> {len(vids)} Shorts found")
+    return [f"https://www.youtube.com/shorts/{v}" for v in vids]
+
 def collect_clips(target=9):
     os.makedirs(ASSETS_DIR, exist_ok=True)
-    clips = []
-    if os.path.isdir(LOCAL_REELS_DIR):
-        for fn in os.listdir(LOCAL_REELS_DIR):
-            fp = os.path.join(LOCAL_REELS_DIR, fn)
-            if fn.lower().endswith(".mp4") and media_dur(fp) >= 8.0:
-                clips.append((fp, False))
-    urls, chans = [], list(SOURCE_YT_CHANNELS)
-    random.shuffle(chans)
-    for ch in chans:
-        try:
-            with yt_dlp.YoutubeDL({"extract_flat": True, "playlistend": 60, "quiet": True, "no_warnings": True, "logger": SilentLogger(), "socket_timeout": 20}) as ydl:
-                info = ydl.extract_info(ch, download=False)
-            for e in (info.get("entries") or []):
-                u = (e or {}).get("url") or (f"https://www.youtube.com/shorts/{e['id']}" if (e or {}).get("id") else None)
-                if u and 8 <= ((e or {}).get("duration") or 20) <= 90:
-                    urls.append(u if u.startswith("http") else f"https://www.youtube.com/shorts/{u}")
-        except Exception as err:
-            log(f"[SOURCE WARN] {ch}: {err}")
-    random.shuffle(urls)
-    for i, u in enumerate(urls[:30]):
-        if len(clips) >= target:
-            break
-        out = os.path.join(ASSETS_DIR, f"src_{i}_{random.randint(100,999)}.mp4")
-        try:
-            with yt_dlp.YoutubeDL({"format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "merge_output_format": "mp4", "outtmpl": out, "noplaylist": True, "quiet": True, "no_warnings": True, "logger": SilentLogger(), "socket_timeout": 25}) as ydl:
-                ydl.extract_info(u, download=True)
-        except Exception:
-            pass
-        if os.path.exists(out) and os.path.getsize(out) > 200000 and media_dur(out) >= 8.0:
-            clips.append((out, True))
-            log(f"[PICKED] {u}")
-        elif os.path.exists(out):
-            os.remove(out)
+    clips, cfile = [], None
+    if YT_COOKIES_TXT:
+        cfile = os.path.join(ASSETS_DIR, f"yt_cookies_{random.randint(100,999)}.txt")
+        with open(cfile, "w", encoding="utf-8") as cf:
+            cf.write(YT_COOKIES_TXT + "\n")
+
+    try:
+        if os.path.isdir(LOCAL_REELS_DIR):
+            for fn in os.listdir(LOCAL_REELS_DIR):
+                fp = os.path.join(LOCAL_REELS_DIR, fn)
+                if fn.lower().endswith((".mp4", ".webm", ".mkv")) and media_dur(fp) >= 8.0:
+                    clips.append((fp, False))
+
+        urls = []
+        for ch in random.sample(SOURCE_YT_CHANNELS, len(SOURCE_YT_CHANNELS)):
+            urls.extend(scrape_channel_short_ids(ch, cfile))
+        urls = list(dict.fromkeys(urls))
+        random.shuffle(urls)
+
+        clients = ["mweb", "web_safari", "web_creator"] if cfile else ["mweb", "web_safari", "android_vr"]
+        for i, u in enumerate(urls[:35]):
+            if len(clips) >= target: break
+            base = os.path.join(ASSETS_DIR, f"src_{i}_{random.randint(100,999)}")
+            opts = {
+                "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+                "merge_output_format": "mp4",
+                "outtmpl": base + ".%(ext)s",
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": True,
+                "logger": SilentLogger(),
+                "socket_timeout": 30,
+                "retries": 2,
+                "sleep_interval_requests": 1,
+                "extractor_args": {"youtube": {"player_client": clients}},
+            }
+            if cfile: opts["cookiefile"] = cfile
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.extract_info(u, download=True)
+            except Exception as err:
+                log(f"[DL WARN] {u}: {str(err).splitlines()[0][:150]}")
+
+            found = [p for p in glob.glob(base + ".*") if not p.endswith((".part", ".ytdl", ".temp"))]
+            picked = found[0] if found else None
+            if picked and os.path.getsize(picked) > 150000 and media_dur(picked) >= 8.0:
+                clips.append((picked, True))
+                log(f"[PICKED {len(clips)}/{target}] {u}")
+            else:
+                for p in glob.glob(base + ".*"):
+                    try: os.remove(p)
+                    except Exception: pass
+    finally:
+        if cfile and os.path.exists(cfile):
+            try: os.remove(cfile)
+            except Exception: pass
+
     random.shuffle(clips)
     return clips
 
 def get_font():
-    if os.path.exists(FONT_PATH) and os.path.getsize(FONT_PATH) > 15000:
-        return FONT_PATH
+    if os.path.exists(FONT_PATH) and os.path.getsize(FONT_PATH) > 15000: return FONT_PATH
     for u in ["https://github.com/google/fonts/raw/main/ofl/cinzel/static/Cinzel-Bold.ttf", "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-ExtraBold.ttf"]:
         try:
             r = requests.get(u, timeout=15)
             if r.status_code == 200 and len(r.content) > 15000:
-                with open(FONT_PATH, "wb") as f:
-                    f.write(r.content)
+                with open(FONT_PATH, "wb") as f: f.write(r.content)
                 return FONT_PATH
-        except Exception:
-            pass
+        except Exception: pass
     return "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 
 def make_vo(text, out_mp3):
@@ -207,8 +252,7 @@ def render_reel(src, out_mp4, font, tag):
             raise Exception(res.stderr.decode(errors="ignore"))
         log(f"[RENDER] {ow}x{oh} | {tot_d}s | '{cta}'")
     finally:
-        if os.path.exists(vo):
-            os.remove(vo)
+        if os.path.exists(vo): os.remove(vo)
     return out_mp4
 
 def upload_relay(fp):
@@ -218,40 +262,32 @@ def upload_relay(fp):
                 r = requests.post(u, data=d, files={"fileToUpload": f}, headers={"User-Agent": "Mozilla/5.0"}, timeout=(15, 120))
             if r.status_code == 200 and r.text.strip().startswith("https://"):
                 return r.text.strip()
-        except Exception:
-            pass
+        except Exception: pass
     raise Exception("Relay upload failed.")
 
 def publish_ig(uid, vurl, cap, tok):
     r = requests.post(f"https://graph.facebook.com/{API}/{uid}/media", data={"media_type": "REELS", "video_url": vurl, "caption": cap, "share_to_feed": "true", "access_token": tok}, timeout=(10, 30)).json()
-    if "id" not in r:
-        raise Exception(f"IG Container failed: {r}")
+    if "id" not in r: raise Exception(f"IG Container failed: {r}")
     cid = r["id"]
     time.sleep(20)
     for _ in range(18):
         st = requests.get(f"https://graph.facebook.com/{API}/{cid}", params={"fields": "status_code", "access_token": tok}, timeout=15).json()
-        if st.get("status_code") == "FINISHED":
-            break
-        if st.get("status_code") in ("ERROR", "EXPIRED"):
-            raise Exception(f"Meta rejected: {st}")
+        if st.get("status_code") == "FINISHED": break
+        if st.get("status_code") in ("ERROR", "EXPIRED"): raise Exception(f"Meta rejected: {st}")
         time.sleep(10)
     pub = requests.post(f"https://graph.facebook.com/{API}/{uid}/media_publish", data={"creation_id": cid, "access_token": tok}, timeout=(10, 30)).json()
-    if "id" not in pub:
-        raise Exception(f"IG Publish failed: {pub}")
+    if "id" not in pub: raise Exception(f"IG Publish failed: {pub}")
     log(f"[IG SUCCESS] Media ID: {pub['id']}")
 
 def publish_yt(fp, title, desc, rtok):
     atok = requests.post("https://oauth2.googleapis.com/token", data={"client_id": YT_CLIENT_ID, "client_secret": YT_CLIENT_SECRET, "refresh_token": rtok, "grant_type": "refresh_token"}, timeout=20).json().get("access_token")
-    if not atok:
-        raise Exception("YT OAuth failed")
+    if not atok: raise Exception("YT OAuth failed")
     init = requests.post("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", headers={"Authorization": f"Bearer {atok}", "Content-Type": "application/json; charset=UTF-8"}, data=json.dumps({"snippet": {"title": title[:95], "description": desc, "categoryId": "22"}, "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}}), timeout=30)
     up_url = init.headers.get("Location")
-    if not up_url:
-        raise Exception(f"YT init failed: {init.text}")
+    if not up_url: raise Exception(f"YT init failed: {init.text}")
     with open(fp, "rb") as f:
         up = requests.put(up_url, headers={"Content-Type": "video/mp4"}, data=f, timeout=180)
-    if up.status_code not in (200, 201):
-        raise Exception(f"YT upload failed: {up.text}")
+    if up.status_code not in (200, 201): raise Exception(f"YT upload failed: {up.text}")
     log(f"[YT SUCCESS] Video ID: {up.json().get('id')}")
 
 def main():
@@ -275,8 +311,7 @@ def main():
             except Exception as e:
                 log(f"[IG SKIP] {e}")
             finally:
-                if os.path.exists(out):
-                    os.remove(out)
+                if os.path.exists(out): os.remove(out)
             if i < len(ig_accs) - 1:
                 time.sleep(random.randint(40, 80))
         yt_ok = 0
@@ -291,16 +326,14 @@ def main():
                 except Exception as e:
                     log(f"[YT SKIP] {e}")
                 finally:
-                    if os.path.exists(out):
-                        os.remove(out)
+                    if os.path.exists(out): os.remove(out)
                 if i < len(YT_REFRESH_TOKENS) - 1:
                     time.sleep(random.randint(20, 45))
         log(f"\n=== WAVE DONE: {ig_ok}/{len(ig_accs)} IG | {yt_ok}/{len(YT_REFRESH_TOKENS)} YT ===")
     finally:
         for fp, tmp in clips:
-            if tmp and os.path.exists(fp):
-                os.remove(fp)
+            if tmp and os.path.exists(fp): os.remove(fp)
 
 if __name__ == "__main__":
     main()
-# END OF FILE
+# END OF FILE 
