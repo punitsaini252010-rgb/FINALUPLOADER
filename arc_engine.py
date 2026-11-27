@@ -1,31 +1,27 @@
-import os, re, sys, glob, json, time, random, requests, subprocess, yt_dlp
+import os, re, sys, json, time, random, requests, subprocess
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 def log(m): print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)
 
-class Silent:
-    def debug(self, m): pass
-    def warning(self, m): pass
-    def error(self, m): pass
-
 TOKENS = [t.strip() for t in [os.getenv("META_TOKEN_1"), os.getenv("META_TOKEN_2"), os.getenv("META_TOKEN_3")] if t and t.strip()]
 YT_ID, YT_SEC = (os.getenv("YT_CLIENT_ID") or "").strip(), (os.getenv("YT_CLIENT_SECRET") or "").strip()
 YT_TOKS = [t.strip() for t in re.split(r"[\n,]+", os.getenv("YT_REFRESH_TOKENS") or "") if t.strip()]
-IG_COOKIES_TXT = (os.getenv("IG_COOKIES_TXT") or "").strip()
+PEXELS_KEY = (os.getenv("PEXELS_API_KEY") or "").strip()
 
 DEFAULT_IG_SOURCES = "heriitageborn,worthy,aureonlux,luxurclassy,leornabs"
-IG_SOURCES = [
-    re.sub(r"\?.*$", "", u.strip().rstrip("/").split("/")[-1]).lstrip("@")
-    for u in re.split(r"[\n,]+", os.getenv("IG_SOURCE_ACCOUNTS") or DEFAULT_IG_SOURCES)
-    if u.strip()
-]
+IG_SOURCES = []
+for raw in re.split(r"[\n,]+", os.getenv("IG_SOURCE_ACCOUNTS") or DEFAULT_IG_SOURCES):
+    h = re.sub(r"\?.*$", "", raw.strip().rstrip("/").split("/")[-1]).lstrip("@")
+    if re.fullmatch(r"[A-Za-z0-9._]{1,30}", h):
+        IG_SOURCES.append(h)
 
 API, LOGO, FONT, EXTRA_BED, HISTORY_FILE, ENABLE_4K = "v26.0", "arc_logo.png", "Cinzel-Bold.ttf", "bg_bed.mp3", "posted_history.json", True
 GREEN = {"arcbloodline2", "arcbloodline3", "arcbloodline4", "arcbloodline9", "arcbloodline19", "arcbloodline20", "arcbloodline23", "arcbloodline25", "arcbloodline26"}
 FLAGGED = {f"arcbloodline{i}" for i in range(1, 27)} - GREEN
 
+PEXELS_QUERIES = ["luxury supercar night", "luxury watch macro", "modern penthouse city", "private jet luxury", "old money classic car"]
 ONE_LINERS = [
     "Stop watching. Enter ARC.",
     "Your seat inside ARC waits.",
@@ -85,7 +81,11 @@ def allowed_ig(u, p):
 def get_accounts():
     accs, seen = [], set()
     for tok in TOKENS:
-        res = requests.get(f"https://graph.facebook.com/{API}/me/accounts", params={"fields": "id,name,instagram_business_account{id,username}", "limit": 100, "access_token": tok}, timeout=(10, 20)).json()
+        try:
+            res = requests.get(f"https://graph.facebook.com/{API}/me/accounts", params={"fields": "id,name,instagram_business_account{id,username}", "limit": 100, "access_token": tok}, timeout=(10, 20)).json()
+        except Exception as e:
+            log(f"[TOKEN ERR] {e}")
+            continue
         if "error" in res:
             log(f"[TOKEN WARN] {res['error'].get('message')}")
             continue
@@ -134,121 +134,134 @@ def detect_shots(src, thresh=0.32):
             pos += seg
     return shots
 
-def collect_clips(hist, target=14):
-    """Returns list of (filepath, clip_id, is_temp) and shot_bank."""
+def fetch_graph_reels(handle, caller_uid, caller_tok, max_pages=3):
+    """Queries Meta Graph API business_discovery for public Business/Creator reels with direct media_url."""
+    found, omitted, cursor = [], 0, None
+    for _ in range(max_pages):
+        edge = f"media.limit(25).after({cursor})" if cursor else "media.limit(25)"
+        fields = f"business_discovery.username({handle}){{{edge}{{id,media_type,media_product_type,media_url,permalink}}}}"
+        try:
+            r = requests.get(f"https://graph.facebook.com/{API}/{caller_uid}", params={"fields": fields, "access_token": caller_tok}, timeout=(10, 25)).json()
+        except Exception as e:
+            log(f"[GRAPH ERR] @{handle}: {e}")
+            break
+        if "error" in r:
+            err = r["error"]
+            log(f"[GRAPH WARN] @{handle}: {err.get('message')} (code {err.get('code')})")
+            break
+        media = r.get("business_discovery", {}).get("media", {})
+        items = media.get("data", [])
+        if not items:
+            break
+        for m in items:
+            if m.get("media_type") == "VIDEO":
+                murl = m.get("media_url")
+                if murl:
+                    found.append((f"ig:{m['id']}", murl, handle))
+                else:
+                    omitted += 1
+        cursor = media.get("paging", {}).get("cursors", {}).get("after")
+        if not cursor:
+            break
+        time.sleep(random.uniform(0.6, 1.2))
+    log(f"[GRAPH] @{handle} -> {len(found)} downloadable reels ({omitted} omitted by Meta audio/download lock)")
+    return found
+
+def collect_clips(hist, accs, target=16):
+    """Collects Reels via Meta Graph API business_discovery, plus local /reels and optional Pexels fallback."""
     os.makedirs("assets", exist_ok=True)
-    clips, seen_ids, cfile = [], set(), None
+    clips, seen_ids = [], set()
     gcounts = hist.get("global_counts", {})
 
-    if IG_COOKIES_TXT:
-        cfile = f"assets/igc_{random.randint(1000,9999)}.txt"
-        open(cfile, "w", encoding="utf-8").write(IG_COOKIES_TXT + "\n")
+    # 1. Local /reels folder if present
+    if os.path.isdir("reels"):
+        for fn in os.listdir("reels"):
+            fp = os.path.join("reels", fn)
+            if fn.lower().endswith((".mp4", ".mov", ".webm")) and probe_dur(fp) >= 3.0:
+                cid = f"local:{fn}"
+                clips.append((fp, cid, False))
+                seen_ids.add(cid)
+        if clips:
+            log(f"[LOCAL] Loaded {len(clips)} clips from /reels")
 
-    try:
-        if os.path.isdir("reels"):
-            for fn in os.listdir("reels"):
-                fp = os.path.join("reels", fn)
-                if fn.lower().endswith((".mp4", ".mov", ".webm")) and probe_dur(fp) >= 3.0:
-                    cid = f"local:{fn}"
-                    clips.append((fp, cid, False))
-                    seen_ids.add(cid)
-
-        # Phase 1: flat scan all 5 target IG accounts to collect a randomized pool of Reel URLs
+    # 2. Meta Graph API business_discovery across all target IG handles
+    if accs and IG_SOURCES:
         candidates = []
         handles = random.sample(IG_SOURCES, len(IG_SOURCES))
-        for h in handles:
-            scan_opts = {
-                "quiet": True, "no_warnings": True, "logger": Silent(),
-                "socket_timeout": 25, "extract_flat": "in_playlist",
-                "playlistend": 30, "sleep_interval_requests": 2,
-            }
-            if cfile: scan_opts["cookiefile"] = cfile
-            try:
-                with yt_dlp.YoutubeDL(scan_opts) as ydl:
-                    info = ydl.extract_info(f"https://www.instagram.com/{h}/reels/", download=False)
-                entries = (info or {}).get("entries") or []
-                found_h = 0
-                for e in entries:
-                    if not e: continue
-                    rid = e.get("id")
-                    u = e.get("url") or e.get("webpage_url") or (f"https://www.instagram.com/reel/{rid}/" if rid else None)
-                    if rid and u:
-                        candidates.append((f"ig:{rid}", u, h))
-                        found_h += 1
-                log(f"[SCAN] @{h} -> {found_h} reels")
-            except Exception as err:
-                log(f"[SCAN WARN] @{h}: {str(err).splitlines()[0][:120]}")
-            time.sleep(random.uniform(1.5, 3.0))
+        callers = []
+        used_toks = set()
+        for a in accs:
+            if a["tok"] not in used_toks:
+                callers.append(a)
+                used_toks.add(a["tok"])
+        for idx, h in enumerate(handles):
+            caller = callers[idx % len(callers)]
+            candidates.extend(fetch_graph_reels(h, caller["uid"], caller["tok"], max_pages=3))
+            time.sleep(random.uniform(0.8, 1.8))
 
-        # Prioritize fresh/least-used Reels while keeping random order within each usage tier
+        # Randomize and prioritize least-used / never-posted Reels first
         random.shuffle(candidates)
         candidates.sort(key=lambda x: gcounts.get(x[0], 0))
 
-        for cid, u, h in candidates:
-            if len(clips) >= target: break
-            if cid in seen_ids: continue
+        for cid, murl, h in candidates:
+            if len(clips) >= target:
+                break
+            if cid in seen_ids:
+                continue
             raw_id = cid.split(":", 1)[1]
-            base = os.path.join("assets", f"ig_{raw_id}")
-            dl_opts = {
-                "quiet": True, "no_warnings": True, "logger": Silent(),
-                "socket_timeout": 30, "noplaylist": True,
-                "merge_output_format": "mp4",
-                "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
-                "outtmpl": base + ".%(ext)s",
-                "sleep_interval_requests": 2,
-            }
-            if cfile: dl_opts["cookiefile"] = cfile
+            out = os.path.join("assets", f"ig_{raw_id}.mp4")
             try:
-                with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                    ydl.extract_info(u, download=True)
-            except Exception as err:
-                log(f"[DL WARN] {u}: {str(err).splitlines()[0][:120]}")
-            found = [p for p in glob.glob(base + ".*") if not p.endswith((".part", ".ytdl", ".temp"))]
-            picked = found[0] if found else None
-            if picked and os.path.getsize(picked) > 150000 and probe_dur(picked) >= 3.0:
-                clips.append((picked, cid, True))
-                seen_ids.add(cid)
-                log(f"[IG PICKED {len(clips)}/{target}] @{h} ({raw_id})")
-            else:
-                for p in glob.glob(base + ".*"):
-                    try: os.remove(p)
+                with requests.get(murl, stream=True, timeout=(15, 60)) as dl:
+                    if dl.status_code != 200:
+                        continue
+                    with open(out, "wb") as wf:
+                        for chunk in dl.iter_content(65536):
+                            if chunk:
+                                wf.write(chunk)
+                if os.path.exists(out) and os.path.getsize(out) > 150000 and probe_dur(out) >= 3.0:
+                    clips.append((out, cid, True))
+                    seen_ids.add(cid)
+                    log(f"[IG DOWNLOADED {len(clips)}/{target}] @{h} ({raw_id})")
+                elif os.path.exists(out):
+                    os.remove(out)
+            except Exception as e:
+                log(f"[DL WARN] @{h} ({raw_id}): {e}")
+                if os.path.exists(out):
+                    try: os.remove(out)
                     except Exception: pass
-            time.sleep(random.uniform(2.0, 4.0))
 
-        # Phase 2 fallback: direct randomized download per profile if flat scan returned 0
-        if len(clips) < target:
-            per_acc = max(3, (target - len(clips)) // max(1, len(handles)) + 1)
-            for h in handles:
-                if len(clips) >= target: break
-                dl_opts = {
-                    "quiet": True, "no_warnings": True, "logger": Silent(),
-                    "socket_timeout": 30, "playlistend": 25, "playlistrandom": True,
-                    "max_downloads": per_acc, "merge_output_format": "mp4",
-                    "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
-                    "outtmpl": os.path.join("assets", f"igfb_{h}_%(id)s.%(ext)s"),
-                    "noplaylist": False, "sleep_interval_requests": 2,
-                }
-                if cfile: dl_opts["cookiefile"] = cfile
-                try:
-                    with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                        ydl.extract_info(f"https://www.instagram.com/{h}/reels/", download=True)
-                except yt_dlp.utils.MaxDownloadsReached:
-                    pass
-                except Exception as err:
-                    log(f"[FB WARN] @{h}: {str(err).splitlines()[0][:120]}")
-                for p in glob.glob(os.path.join("assets", f"igfb_{h}_*")):
-                    if p.endswith((".part", ".ytdl", ".temp")): continue
-                    rid = os.path.splitext(os.path.basename(p))[0].split(f"igfb_{h}_", 1)[-1]
-                    cid = f"ig:{rid}"
-                    if cid not in seen_ids and os.path.getsize(p) > 150000 and probe_dur(p) >= 3.0:
-                        clips.append((p, cid, True))
+    # 3. Optional Pexels API fallback if Graph API didn't fill the full wave target
+    if len(clips) < target and PEXELS_KEY:
+        headers = {"Authorization": PEXELS_KEY}
+        for q in random.sample(PEXELS_QUERIES, len(PEXELS_QUERIES)):
+            if len(clips) >= target:
+                break
+            try:
+                r = requests.get("https://api.pexels.com/videos/search", headers=headers, params={"query": q, "orientation": "portrait", "size": "large", "per_page": 10}, timeout=20).json()
+                vids = r.get("videos") or []
+                random.shuffle(vids)
+                for v in vids:
+                    if len(clips) >= target:
+                        break
+                    cid = f"px:{v['id']}"
+                    if cid in seen_ids:
+                        continue
+                    files = sorted([vf for vf in v.get("video_files", []) if vf.get("file_type") == "video/mp4" and (vf.get("height") or 0) >= 1080], key=lambda x: x.get("height", 0), reverse=True)
+                    if not files:
+                        continue
+                    out = os.path.join("assets", f"px_{v['id']}.mp4")
+                    with requests.get(files[0]["link"], stream=True, timeout=(15, 60)) as dl, open(out, "wb") as wf:
+                        for chunk in dl.iter_content(65536):
+                            if chunk:
+                                wf.write(chunk)
+                    if os.path.exists(out) and os.path.getsize(out) > 150000 and probe_dur(out) >= 3.0:
+                        clips.append((out, cid, True))
                         seen_ids.add(cid)
-                        log(f"[IG FB PICKED] @{h} ({rid})")
-                time.sleep(random.uniform(2.0, 4.0))
-    finally:
-        if cfile and os.path.exists(cfile):
-            try: os.remove(cfile)
-            except Exception: pass
+                        log(f"[PEXELS {len(clips)}/{target}] {v['id']} ({files[0].get('height')}p)")
+                    elif os.path.exists(out):
+                        os.remove(out)
+            except Exception as e:
+                log(f"[PEXELS WARN] {e}")
 
     random.shuffle(clips)
     bank = {fp: detect_shots(fp) for fp, _, _ in clips}
@@ -287,7 +300,6 @@ def build_seq(primary_fp, clips, bank, target_main):
     f_shots = bank.get(primary_fp) or []
     first_st, first_d = (f_shots[0][1], f_shots[0][2]) if f_shots else (0.0, min(2.2, max(1.2, probe_dur(primary_fp) * 0.3)))
 
-    # Mix remaining shots from primary clip + up to 2 other random clips so every account gets a unique shuffle
     other_fps = [c[0] for c in clips if c[0] != primary_fp]
     mix_fps = [primary_fp] + random.sample(other_fps, min(len(other_fps), 2))
     rem = [s for p in mix_fps for s in (bank.get(p) or []) if not (p == primary_fp and s[1] < first_st + first_d)]
@@ -430,9 +442,9 @@ def main():
     log("=== ARC ENGINE STARTED ===")
     hist = load_history()
     accs = get_accounts()
-    target_pool = max(14, len(accs) + len(YT_TOKS) + 3)
-    font, (clips, bank) = get_font(), collect_clips(hist, target=target_pool)
-    if not clips: return log("[ERROR] No clips found")
+    target_pool = max(16, len(accs) + len(YT_TOKS) + 3)
+    font, (clips, bank) = get_font(), collect_clips(hist, accs, target=target_pool)
+    if not clips: return log("[ERROR] No downloadable reels found")
     wave_used = set()
     try:
         ig_ok, yt_ok = 0, 0
