@@ -5,6 +5,9 @@ on:
     - cron: '0 0,3,9,13,18 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   run-autonomous-fleet:
     runs-on: ubuntu-latest
@@ -14,18 +17,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-      - name: Start YouTube PO Token Server
-        run: |
-          docker run --name bgutil-provider -d --init -p 127.0.0.1:4416:4416 brainicism/bgutil-ytdlp-pot-provider:2.0.2
-          sleep 4
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install --upgrade pip requests edge-tts "yt-dlp[default]" bgutil-ytdlp-pot-provider==2.0.2
+          pip install --upgrade pip requests edge-tts "yt-dlp[default]"
       - name: Run ARC Engine
         env:
           META_TOKEN_1: ${{ secrets.META_TOKEN_1 }}
@@ -34,6 +30,16 @@ jobs:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKENS: ${{ secrets.YT_REFRESH_TOKENS }}
-          YT_COOKIES_TXT: ${{ secrets.YT_COOKIES_TXT }}
+          IG_COOKIES_TXT: ${{ secrets.IG_COOKIES_TXT }}
+          IG_SOURCE_ACCOUNTS: ${{ secrets.IG_SOURCE_ACCOUNTS }}
         run: python arc_engine.py
-        
+      - name: Save Posted History
+        run: |
+          if [ -f posted_history.json ]; then
+            git config user.name "arc-bot"
+            git config user.email "arc-bot@users.noreply.github.com"
+            git add posted_history.json
+            git diff --cached --quiet || git commit -m "Update posted reel history"
+            git push
+          fi
+          
