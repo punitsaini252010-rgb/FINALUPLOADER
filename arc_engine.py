@@ -1,4 +1,4 @@
-import os, re, sys, json, time, random, requests, subprocess, yt_dlp
+import os, re, sys, glob, json, time, random, requests, subprocess, yt_dlp
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -14,13 +14,29 @@ TOKENS = [t.strip() for t in [os.getenv("META_TOKEN_1"), os.getenv("META_TOKEN_2
 YT_ID, YT_SEC = (os.getenv("YT_CLIENT_ID") or "").strip(), (os.getenv("YT_CLIENT_SECRET") or "").strip()
 YT_TOKS = [t.strip() for t in re.split(r"[\n,]+", os.getenv("YT_REFRESH_TOKENS") or "") if t.strip()]
 IG_COOKIES_TXT = (os.getenv("IG_COOKIES_TXT") or "").strip()
-IG_SOURCES = [u.strip().lstrip("@") for u in re.split(r"[\n,]+", os.getenv("IG_SOURCE_ACCOUNTS") or "luxurylife,oldmoneyaesthetic,billionairelifestyle") if u.strip()]
 
-API, LOGO, FONT, EXTRA_BED, ENABLE_4K = "v20.0", "arc_logo.png", "Cinzel-Bold.ttf", "bg_bed.mp3", True
+DEFAULT_IG_SOURCES = "heriitageborn,worthy,aureonlux,luxurclassy,leornabs"
+IG_SOURCES = [
+    re.sub(r"\?.*$", "", u.strip().rstrip("/").split("/")[-1]).lstrip("@")
+    for u in re.split(r"[\n,]+", os.getenv("IG_SOURCE_ACCOUNTS") or DEFAULT_IG_SOURCES)
+    if u.strip()
+]
+
+API, LOGO, FONT, EXTRA_BED, HISTORY_FILE, ENABLE_4K = "v26.0", "arc_logo.png", "Cinzel-Bold.ttf", "bg_bed.mp3", "posted_history.json", True
 GREEN = {"arcbloodline2", "arcbloodline3", "arcbloodline4", "arcbloodline9", "arcbloodline19", "arcbloodline20", "arcbloodline23", "arcbloodline25", "arcbloodline26"}
 FLAGGED = {f"arcbloodline{i}" for i in range(1, 27)} - GREEN
 
-ONE_LINERS = ["Stop watching. Enter ARC.", "Your seat inside ARC waits.", "Build in silence. Enter ARC.", "Claim your place inside ARC.", "Doors to ARC are open.", "The blueprint lives inside ARC.", "Enter ARC. Link in bio.", "Step inside ARC today."]
+ONE_LINERS = [
+    "Stop watching. Enter ARC.",
+    "Your seat inside ARC waits.",
+    "Build in silence. Enter ARC.",
+    "Claim your place inside ARC.",
+    "Doors to ARC are open.",
+    "The blueprint lives inside ARC.",
+    "Enter ARC. Link in bio.",
+    "Step inside ARC today.",
+    "Leave average behind. Enter ARC.",
+]
 BODIES = [
     "Most men spend years watching while a few quietly build leverage.\n\nEverything you need to leave the average lane is mapped out inside ARC.",
     "Nobody hands you freedom. Build an independent system now or trade your hours forever.\n\nARC is built for men who execute in silence.",
@@ -34,6 +50,32 @@ TITLES = ["Build in Silence. Enter ARC. #Shorts", "Stop Watching. Start Building
 
 def caption(i): return f"{random.choice(BODIES)}\n\n{CTAS[i % len(CTAS)]}\n\n{' '.join(random.sample(TAGS, k=random.randint(2, 4)))}"
 
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            data = json.load(open(HISTORY_FILE, "r", encoding="utf-8"))
+            if isinstance(data, dict):
+                data.setdefault("accounts", {})
+                data.setdefault("global_counts", {})
+                return data
+        except Exception:
+            pass
+    return {"accounts": {}, "global_counts": {}}
+
+def save_history(hist):
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(hist, f, indent=2)
+    except Exception as e:
+        log(f"[HIST WARN] {e}")
+
+def record_post(hist, acc_key, clip_id):
+    acc_list = hist["accounts"].setdefault(acc_key, [])
+    if clip_id not in acc_list:
+        acc_list.append(clip_id)
+    hist["global_counts"][clip_id] = hist["global_counts"].get(clip_id, 0) + 1
+    save_history(hist)
+
 def allowed_ig(u, p):
     u, p = (u or "").strip().lower(), (p or "").strip().lower()
     if u in GREEN: return True
@@ -44,6 +86,9 @@ def get_accounts():
     accs, seen = [], set()
     for tok in TOKENS:
         res = requests.get(f"https://graph.facebook.com/{API}/me/accounts", params={"fields": "id,name,instagram_business_account{id,username}", "limit": 100, "access_token": tok}, timeout=(10, 20)).json()
+        if "error" in res:
+            log(f"[TOKEN WARN] {res['error'].get('message')}")
+            continue
         for pg in res.get("data", []):
             ig = pg.get("instagram_business_account")
             if ig and ig.get("id") and ig["id"] not in seen and allowed_ig(ig.get("username"), pg.get("name")):
@@ -89,35 +134,142 @@ def detect_shots(src, thresh=0.32):
             pos += seg
     return shots
 
-def collect_clips(target=9):
+def collect_clips(hist, target=14):
+    """Returns list of (filepath, clip_id, is_temp) and shot_bank."""
     os.makedirs("assets", exist_ok=True)
-    clips, cfile = [], None
+    clips, seen_ids, cfile = [], set(), None
+    gcounts = hist.get("global_counts", {})
+
     if IG_COOKIES_TXT:
         cfile = f"assets/igc_{random.randint(1000,9999)}.txt"
         open(cfile, "w", encoding="utf-8").write(IG_COOKIES_TXT + "\n")
+
     try:
         if os.path.isdir("reels"):
-            clips.extend((os.path.join("reels", f), False) for f in os.listdir("reels") if f.lower().endswith((".mp4", ".mov", ".webm")) and probe_dur(os.path.join("reels", f)) >= 3.0)
-        targets = random.sample(IG_SOURCES, len(IG_SOURCES))
-        for idx, h in enumerate(targets):
-            if len(clips) >= target: break
-            out = f"assets/ig_{idx}_{random.randint(100,999)}.mp4"
-            opts = {"quiet": True, "no_warnings": True, "logger": Silent(), "socket_timeout": 25, "playlistend": 8, "max_downloads": 1, "merge_output_format": "mp4", "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best", "outtmpl": out, "noplaylist": False}
-            if cfile: opts["cookiefile"] = cfile
+            for fn in os.listdir("reels"):
+                fp = os.path.join("reels", fn)
+                if fn.lower().endswith((".mp4", ".mov", ".webm")) and probe_dur(fp) >= 3.0:
+                    cid = f"local:{fn}"
+                    clips.append((fp, cid, False))
+                    seen_ids.add(cid)
+
+        # Phase 1: flat scan all 5 target IG accounts to collect a randomized pool of Reel URLs
+        candidates = []
+        handles = random.sample(IG_SOURCES, len(IG_SOURCES))
+        for h in handles:
+            scan_opts = {
+                "quiet": True, "no_warnings": True, "logger": Silent(),
+                "socket_timeout": 25, "extract_flat": "in_playlist",
+                "playlistend": 30, "sleep_interval_requests": 2,
+            }
+            if cfile: scan_opts["cookiefile"] = cfile
             try:
-                with yt_dlp.YoutubeDL(opts) as ydl: ydl.extract_info(f"https://www.instagram.com/{h}/reels/", download=True)
-            except Exception: pass
-            if os.path.exists(out) and os.path.getsize(out) > 150000 and probe_dur(out) >= 3.0:
-                clips.append((out, True))
-                log(f"[IG SCRAPED] @{h}")
-            elif os.path.exists(out): os.remove(out)
-            if len(targets) > 1: time.sleep(random.uniform(1.5, 3.5))
+                with yt_dlp.YoutubeDL(scan_opts) as ydl:
+                    info = ydl.extract_info(f"https://www.instagram.com/{h}/reels/", download=False)
+                entries = (info or {}).get("entries") or []
+                found_h = 0
+                for e in entries:
+                    if not e: continue
+                    rid = e.get("id")
+                    u = e.get("url") or e.get("webpage_url") or (f"https://www.instagram.com/reel/{rid}/" if rid else None)
+                    if rid and u:
+                        candidates.append((f"ig:{rid}", u, h))
+                        found_h += 1
+                log(f"[SCAN] @{h} -> {found_h} reels")
+            except Exception as err:
+                log(f"[SCAN WARN] @{h}: {str(err).splitlines()[0][:120]}")
+            time.sleep(random.uniform(1.5, 3.0))
+
+        # Prioritize fresh/least-used Reels while keeping random order within each usage tier
+        random.shuffle(candidates)
+        candidates.sort(key=lambda x: gcounts.get(x[0], 0))
+
+        for cid, u, h in candidates:
+            if len(clips) >= target: break
+            if cid in seen_ids: continue
+            raw_id = cid.split(":", 1)[1]
+            base = os.path.join("assets", f"ig_{raw_id}")
+            dl_opts = {
+                "quiet": True, "no_warnings": True, "logger": Silent(),
+                "socket_timeout": 30, "noplaylist": True,
+                "merge_output_format": "mp4",
+                "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+                "outtmpl": base + ".%(ext)s",
+                "sleep_interval_requests": 2,
+            }
+            if cfile: dl_opts["cookiefile"] = cfile
+            try:
+                with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                    ydl.extract_info(u, download=True)
+            except Exception as err:
+                log(f"[DL WARN] {u}: {str(err).splitlines()[0][:120]}")
+            found = [p for p in glob.glob(base + ".*") if not p.endswith((".part", ".ytdl", ".temp"))]
+            picked = found[0] if found else None
+            if picked and os.path.getsize(picked) > 150000 and probe_dur(picked) >= 3.0:
+                clips.append((picked, cid, True))
+                seen_ids.add(cid)
+                log(f"[IG PICKED {len(clips)}/{target}] @{h} ({raw_id})")
+            else:
+                for p in glob.glob(base + ".*"):
+                    try: os.remove(p)
+                    except Exception: pass
+            time.sleep(random.uniform(2.0, 4.0))
+
+        # Phase 2 fallback: direct randomized download per profile if flat scan returned 0
+        if len(clips) < target:
+            per_acc = max(3, (target - len(clips)) // max(1, len(handles)) + 1)
+            for h in handles:
+                if len(clips) >= target: break
+                dl_opts = {
+                    "quiet": True, "no_warnings": True, "logger": Silent(),
+                    "socket_timeout": 30, "playlistend": 25, "playlistrandom": True,
+                    "max_downloads": per_acc, "merge_output_format": "mp4",
+                    "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+                    "outtmpl": os.path.join("assets", f"igfb_{h}_%(id)s.%(ext)s"),
+                    "noplaylist": False, "sleep_interval_requests": 2,
+                }
+                if cfile: dl_opts["cookiefile"] = cfile
+                try:
+                    with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                        ydl.extract_info(f"https://www.instagram.com/{h}/reels/", download=True)
+                except yt_dlp.utils.MaxDownloadsReached:
+                    pass
+                except Exception as err:
+                    log(f"[FB WARN] @{h}: {str(err).splitlines()[0][:120]}")
+                for p in glob.glob(os.path.join("assets", f"igfb_{h}_*")):
+                    if p.endswith((".part", ".ytdl", ".temp")): continue
+                    rid = os.path.splitext(os.path.basename(p))[0].split(f"igfb_{h}_", 1)[-1]
+                    cid = f"ig:{rid}"
+                    if cid not in seen_ids and os.path.getsize(p) > 150000 and probe_dur(p) >= 3.0:
+                        clips.append((p, cid, True))
+                        seen_ids.add(cid)
+                        log(f"[IG FB PICKED] @{h} ({rid})")
+                time.sleep(random.uniform(2.0, 4.0))
     finally:
-        if cfile and os.path.exists(cfile): os.remove(cfile)
+        if cfile and os.path.exists(cfile):
+            try: os.remove(cfile)
+            except Exception: pass
+
     random.shuffle(clips)
-    bank = {fp: detect_shots(fp) for fp, _ in clips}
-    log(f"[POOL] {len(clips)} reels | {sum(len(v) for v in bank.values())} shots")
+    bank = {fp: detect_shots(fp) for fp, _, _ in clips}
+    log(f"[POOL] {len(clips)} unique reels | {sum(len(v) for v in bank.values())} scene shots ready")
     return clips, bank
+
+def pick_unique_clip(clips, hist, acc_key, wave_used):
+    """Picks a completely random clip never posted by acc_key and unused by other accounts in this wave."""
+    posted = set(hist.get("accounts", {}).get(acc_key, []))
+    gcounts = hist.get("global_counts", {})
+    fresh_wave = [c for c in clips if c[1] not in posted and c[1] not in wave_used]
+    if fresh_wave:
+        random.shuffle(fresh_wave)
+        fresh_wave.sort(key=lambda c: gcounts.get(c[1], 0))
+        min_use = gcounts.get(fresh_wave[0][1], 0)
+        tier = [c for c in fresh_wave if gcounts.get(c[1], 0) == min_use]
+        return random.choice(tier)
+    fresh_acc = [c for c in clips if c[1] not in posted]
+    if fresh_acc:
+        return random.choice(fresh_acc)
+    return None
 
 def get_font():
     if os.path.exists(FONT) and os.path.getsize(FONT) > 15000: return FONT
@@ -130,14 +282,18 @@ def get_font():
         except Exception: pass
     return "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 
-def build_seq(clips, bank, target_main):
-    paths = [c[0] for c in clips]
-    first_src = random.choice(paths)
-    f_shots = bank.get(first_src) or []
-    first_st, first_d = (f_shots[0][1], f_shots[0][2]) if f_shots else (0.0, min(2.2, max(1.2, probe_dur(first_src) * 0.3)))
-    rem = [s for p in paths for s in (bank.get(p) or []) if not (p == first_src and s[1] < first_st + first_d)]
-    if not rem: rem = [(p, 0.1, 1.3) for p in paths]
+def build_seq(primary_fp, clips, bank, target_main):
+    """Keeps primary_fp's 1st clip intact, slices & shuffles remaining clips, inserts 2x 0.5s ARC logo flashes."""
+    f_shots = bank.get(primary_fp) or []
+    first_st, first_d = (f_shots[0][1], f_shots[0][2]) if f_shots else (0.0, min(2.2, max(1.2, probe_dur(primary_fp) * 0.3)))
+
+    # Mix remaining shots from primary clip + up to 2 other random clips so every account gets a unique shuffle
+    other_fps = [c[0] for c in clips if c[0] != primary_fp]
+    mix_fps = [primary_fp] + random.sample(other_fps, min(len(other_fps), 2))
+    rem = [s for p in mix_fps for s in (bank.get(p) or []) if not (p == primary_fp and s[1] < first_st + first_d)]
+    if not rem: rem = [(p, 0.1, 1.3) for p in mix_fps]
     random.shuffle(rem)
+
     budget = max(2.5, round(target_main - first_d - 1.0, 2))
     cuts, acc = [], 0.0
     while acc < budget and len(cuts) < 8:
@@ -147,24 +303,26 @@ def build_seq(clips, bank, target_main):
             cuts.append((s[0], s[1], round(d, 2)))
             acc = round(acc + d, 2)
         random.shuffle(rem)
+
     g1 = max(1, len(cuts) // 3) if len(cuts) >= 3 else 1
     g2 = max(g1 + 1, (2 * len(cuts)) // 3) if len(cuts) >= 3 else 2
-    items = [("clip", first_src, first_st, first_d)]
+    items = [("clip", primary_fp, first_st, first_d)]
     items += [("clip", *c) for c in cuts[:g1]] + [("logo", None, 0.0, 0.5)]
     items += [("clip", *c) for c in cuts[g1:g2]] + [("logo", None, 0.0, 0.5)]
     items += [("clip", *c) for c in cuts[g2:]]
-    return items, first_src, first_st
+    return items, primary_fp, first_st
 
-def render(clips, bank, out_mp4, font, tag):
+def render(primary_fp, clips, bank, out_mp4, font, tag):
     cta, vo = random.choice(ONE_LINERS), f"vo_{tag}_{random.randint(100,999)}.mp3"
     v = random.choice(["en-US-AndrewMultilingualNeural", "en-US-BrianMultilingualNeural", "en-US-ChristopherNeural"])
     subprocess.run(["edge-tts", "--voice", v, "--rate=-2%", "--pitch=-4Hz", "--text", cta, "--write-media", vo], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=True)
     end_d = round(max(2.0, min(3.8, probe_dur(vo) + 0.35)), 2)
-    items, first_src, first_st = build_seq(clips, bank, round(max(7.5, random.uniform(10.5, 12.8) - end_d), 2))
+    items, first_src, first_st = build_seq(primary_fp, clips, bank, round(max(7.5, random.uniform(10.5, 12.8) - end_d), 2))
     main_d = round(sum(it[3] for it in items), 2)
     tot_d = round(main_d + end_d, 2)
     logo_ok = os.path.exists(LOGO) and os.path.getsize(LOGO) > 500
     bed_ok = os.path.exists(EXTRA_BED) and os.path.getsize(EXTRA_BED) > 5000
+
     ow, oh, pw, ph, mpx, bpx, fpx, tpx, cpx, epx, lxy, ty, edy, cy, eay, ecy, crf, pre, lvl, dx, dy = (
         (2160, 3840, 2224, 3954, 78, 660, 520, 54, 86, 210, "54:90", "98", "-230", "(h/2)+250", "(h/2)-250", "(h/2)+110", "17", "veryfast", "5.1", 28, 48)
         if ENABLE_4K else
@@ -187,12 +345,13 @@ def render(clips, bank, out_mp4, font, tag):
         if it[0] == "clip": counts[s2i[it[1]]] = counts.get(s2i[it[1]], 0) + 1
     for i, c in counts.items():
         if c > 1: splits.append(f"[{i}:v]split={c}" + "".join(f"[s{i}_{j}]" for j in range(c)) + ";")
+    n_flashes = sum(1 for it in items if it[0] == "logo")
     if logo_ok:
-        splits.append(f"[{logo_i}:v]split=4[l1][l2][lf0][lf1];")
+        splits.append(f"[{logo_i}:v]split={2 + n_flashes}[l1][l2]" + "".join(f"[lf{j}]" for j in range(n_flashes)) + ";")
 
     for k, (kind, src, st, dur) in enumerate(items):
         if kind == "logo" and logo_ok:
-            segs.append(f"color=c=0x080808:s={ow}x{oh}:d={dur}:r=30[lb{k}];[lf{lcnt}]scale={fpx}:{fpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba[lg{k}];[lb{k}][lg{k}]overlay=(W-w)/2:(H-h)/2,fps=30,setsar=1,format=yuv420p[v{k}];")
+            segs.append(f"color=c=0x080808:s={ow}x{oh}:d={dur}:r=30[lb{k}];[lf{lcnt}]scale={fpx}:{fpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba[lg{k}];[lb{k}][lg{k}]overlay=(W-w)/2:(H-h)/2:eof_action=repeat,fps=30,setsar=1,format=yuv420p[v{k}];")
             lcnt += 1
         elif kind == "logo":
             segs.append(f"color=c=0x080808:s={ow}x{oh}:d={dur}:r=30,drawtext=fontfile='{font}':text='A R C':fontcolor=0xFFD700:fontsize={epx}:x=(w-text_w)/2:y=(h-text_h)/2,fps=30,setsar=1,format=yuv420p[v{k}];")
@@ -212,7 +371,7 @@ def render(clips, bank, out_mp4, font, tag):
     cat = "".join(f"[v{k}]" for k in range(len(items)))
     csafe, ts = cta.replace("'", "").replace(":", " -"), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(time.time()) - random.randint(600, 86400)))
     if logo_ok:
-        vf = "".join(splits + segs) + f"{cat}concat=n={len(items)}:v=1:a=0[mb];[l1]scale={mpx}:{mpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba,colorchannelmixer=aa=0.45[ml];[l2]scale={bpx}:{bpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba[bl];[mb][ml]overlay={lxy}[mlo];[mlo]drawtext=fontfile='{font}':text='ARC':fontcolor=white@0.22:fontsize={tpx}:x=(w-text_w)/2:y={ty},format=yuv420p[mv];color=c=0x080808:s={ow}x{oh}:d={end_d}:r=30[eb];[eb][bl]overlay=(W-w)/2:(H-h)/2{edy}[elo];[elo]drawtext=fontfile='{font}':text='{csafe}':fontcolor=0xFFD700:fontsize={cpx}:x=(w-text_w)/2:y={cy}:shadowcolor=black:shadowx=2:shadowy=2,fps=30,setsar=1,format=yuv420p[ev];[mv][ev]concat=n=2:v=1:a=0[vout];"
+        vf = "".join(splits + segs) + f"{cat}concat=n={len(items)}:v=1:a=0[mb];[l1]scale={mpx}:{mpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba,colorchannelmixer=aa=0.45[ml];[l2]scale={bpx}:{bpx}:force_original_aspect_ratio=decrease:flags=lanczos,format=rgba[bl];[mb][ml]overlay={lxy}:eof_action=repeat[mlo];[mlo]drawtext=fontfile='{font}':text='ARC':fontcolor=white@0.22:fontsize={tpx}:x=(w-text_w)/2:y={ty},format=yuv420p[mv];color=c=0x080808:s={ow}x{oh}:d={end_d}:r=30[eb];[eb][bl]overlay=(W-w)/2:(H-h)/2{edy}:eof_action=repeat[elo];[elo]drawtext=fontfile='{font}':text='{csafe}':fontcolor=0xFFD700:fontsize={cpx}:x=(w-text_w)/2:y={cy}:shadowcolor=black:shadowx=2:shadowy=2,fps=30,setsar=1,format=yuv420p[ev];[mv][ev]concat=n=2:v=1:a=0[vout];"
     else:
         vf = "".join(splits + segs) + f"{cat}concat=n={len(items)}:v=1:a=0,drawtext=fontfile='{font}':text='ARC':fontcolor=white@0.22:fontsize={tpx}:x=(w-text_w)/2:y={ty},format=yuv420p[mv];color=c=0x080808:s={ow}x{oh}:d={end_d}:r=30,drawtext=fontfile='{font}':text='A R C':fontcolor=0xFFD700:fontsize={epx}:x=(w-text_w)/2:y={eay},drawtext=fontfile='{font}':text='{csafe}':fontcolor=white@0.95:fontsize={cpx}:x=(w-text_w)/2:y={ecy},fps=30,setsar=1,format=yuv420p[ev];[mv][ev]concat=n=2:v=1:a=0[vout];"
 
@@ -231,7 +390,7 @@ def render(clips, bank, out_mp4, font, tag):
     try:
         res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
         if res.returncode != 0 or not os.path.exists(out_mp4): raise Exception(res.stderr.decode(errors="ignore"))
-        log(f"[RENDER] {ow}x{oh} | {tot_d}s | '{cta}'")
+        log(f"[RENDER] {ow}x{oh} | {tot_d}s | 1st intact + {len(items)-3} shuffled + 2x0.5s ARC | '{cta}'")
     finally:
         if os.path.exists(vo): os.remove(vo)
 
@@ -269,38 +428,69 @@ def post_yt(fp, title, desc, rtok):
 
 def main():
     log("=== ARC ENGINE STARTED ===")
-    font, (clips, bank) = get_font(), collect_clips(9)
+    hist = load_history()
+    accs = get_accounts()
+    target_pool = max(14, len(accs) + len(YT_TOKS) + 3)
+    font, (clips, bank) = get_font(), collect_clips(hist, target=target_pool)
     if not clips: return log("[ERROR] No clips found")
+    wave_used = set()
     try:
-        accs, ig_ok, yt_ok = get_accounts(), 0, 0
+        ig_ok, yt_ok = 0, 0
         random.shuffle(accs)
         for i, a in enumerate(accs):
+            acc_key = f"ig:{a['uid']}"
             log(f"\n--- IG [{i+1}/{len(accs)}]: {a['user'] or a['name']} ---")
+            chosen = pick_unique_clip(clips, hist, acc_key, wave_used)
+            if not chosen:
+                log("[IG SKIP] All available clips already posted by this account")
+                continue
+            fp, cid, _ = chosen
+            wave_used.add(cid)
+            log(f"[ASSIGNED] {cid}")
             out = f"arc_ig_{i}.mp4"
             try:
-                render(clips, bank, out, font, f"ig{i}")
+                render(fp, clips, bank, out, font, f"ig{i}")
                 post_ig(a["uid"], relay(out), caption(i), a["tok"])
+                record_post(hist, acc_key, cid)
                 ig_ok += 1
-            except Exception as e: log(f"[IG SKIP] {e}")
+            except Exception as e:
+                log(f"[IG SKIP] {e}")
             finally:
                 if os.path.exists(out): os.remove(out)
-            if i < len(accs) - 1: time.sleep(random.randint(40, 80))
+            if i < len(accs) - 1:
+                wait_s = random.randint(45, 115)
+                log(f"[WAIT] {wait_s}s before next account...")
+                time.sleep(wait_s)
+
         if YT_ID and YT_SEC and YT_TOKS:
             for i, rt in enumerate(YT_TOKS):
+                acc_key = f"yt:{i}"
                 log(f"\n--- YT [{i+1}/{len(YT_TOKS)}] ---")
+                chosen = pick_unique_clip(clips, hist, acc_key, wave_used)
+                if not chosen:
+                    log("[YT SKIP] All available clips already posted by this channel")
+                    continue
+                fp, cid, _ = chosen
+                wave_used.add(cid)
                 out = f"arc_yt_{i}.mp4"
                 try:
-                    render(clips, bank, out, font, f"yt{i}")
+                    render(fp, clips, bank, out, font, f"yt{i}")
                     post_yt(out, random.choice(TITLES), caption(i), rt)
+                    record_post(hist, acc_key, cid)
                     yt_ok += 1
-                except Exception as e: log(f"[YT SKIP] {e}")
+                except Exception as e:
+                    log(f"[YT SKIP] {e}")
                 finally:
                     if os.path.exists(out): os.remove(out)
-                if i < len(YT_TOKS) - 1: time.sleep(random.randint(20, 45))
+                if i < len(YT_TOKS) - 1:
+                    time.sleep(random.randint(25, 60))
+
         log(f"\n=== WAVE DONE: {ig_ok}/{len(accs)} IG | {yt_ok}/{len(YT_TOKS)} YT ===")
     finally:
-        for fp, tmp in clips:
-            if tmp and os.path.exists(fp): os.remove(fp)
+        for fp, _, tmp in clips:
+            if tmp and os.path.exists(fp):
+                try: os.remove(fp)
+                except Exception: pass
 
 if __name__ == "__main__":
     main()
